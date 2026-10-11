@@ -12,7 +12,7 @@
   select,button{font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #475569;background:#334155;color:#e2e8f0;cursor:pointer}
   button:hover,select:hover{background:#475569}
   #info{font-size:14px;min-height:22px;margin:6px 0;text-align:center}
-  .wrap{overflow:auto;max-width:100%}
+  .wrap{overflow:auto;width:100%}
   #board{display:grid;gap:2px;background:#0f172a;padding:6px;border-radius:8px;user-select:none;width:max-content;margin:0 auto}
   .c{width:var(--cs,28px);height:var(--cs,28px);display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:calc(var(--cs,28px)*0.55);border-radius:3px;background:#475569;cursor:pointer;box-sizing:border-box}
   .c:hover{background:#64748b}
@@ -23,7 +23,7 @@
   .c.hint{outline:3px solid #facc15;outline-offset:-3px}
   .n1{color:#2563eb}.n2{color:#16a34a}.n3{color:#dc2626}.n4{color:#7c3aed}
   .n5{color:#9a3412}.n6{color:#0891b2}.n7{color:#111}.n8{color:#666}
-  .note{font-size:12px;color:#94a3b8;margin-top:12px;max-width:640px;text-align:center;line-height:1.6}
+  .note{font-size:12px;color:#94a3b8;margin-top:12px;max-width:640px;text-align:left;line-height:1.6}
 </style>
 </head>
 <body>
@@ -52,10 +52,10 @@
 </div>
 <div id="info"></div>
 <div class="wrap"><div id="board"></div></div>
-<div class="note">
+<details class="note"><summary style="cursor:pointer">玩法说明（点击展开）</summary>
   左键翻开，右键插旗/取消，点击已翻开的数字可对其周围已插旗的格子进行快速展开。<br>
   自定义模式可设置任意尺寸（5–50）和雷数（最多为 宽×高−9，以保证首击开空）。棋盘生成时，求解器做完整逻辑推理（把数字与总雷数看作线性约束，检查每个未知格在所有可能布局中是否唯一确定）；只有能被它从头解完的棋盘才会被采用，因此该棋盘无需猜测即可完成。生成限时 15 秒，超时则放弃并提示。
-</div>
+</details>
 
 <script>
 // ===== 难度参数 =====
@@ -402,6 +402,16 @@ if(typeof document!=='undefined'){
     return {W,H,M,name:'自定义'};
   }
 
+  // 格子大小随可用宽度自动缩小，保证棋盘在窄屏/嵌入页面中完整显示
+  const wrapEl=boardEl.parentElement||boardEl;
+  function layoutBoard(){
+    const avail=wrapEl.clientWidth||900;
+    const cs=Math.max(12,Math.min(28,Math.floor((avail-20)/cfg.W)-2));
+    boardEl.style.setProperty('--cs', cs+'px');
+    boardEl.style.gridTemplateColumns=`repeat(${cfg.W},${cs}px)`;
+  }
+  window.addEventListener('resize',()=>{ if(cfg) layoutBoard(); });
+
   function init(){
     gid++; genBusy=false;
     custEl.style.display = sel.value==='custom' ? '' : 'none';
@@ -410,9 +420,7 @@ if(typeof document!=='undefined'){
     b=null; rev=null; over=false; hintCell=-1; boomCell=-1;
     flag=new Uint8Array(cfg.W*cfg.H);
     stopTimer(); timeEl.textContent='0';
-    const cs = cfg.W>30 ? 22 : 28;
-    boardEl.style.setProperty('--cs', cs+'px');
-    boardEl.style.gridTemplateColumns=`repeat(${cfg.W},${cs}px)`;
+    layoutBoard();
     boardEl.innerHTML='';
     for(let i=0;i<cfg.W*cfg.H;i++){
       const d=document.createElement('div');
@@ -602,5 +610,5 @@ if(typeof document!=='undefined'){
 }
 
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a48bf96f3afdcabc',t:'MTc5MTcwMTg4NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a48c09b149f9cabc',t:'MTc5MTcwMjU1MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
