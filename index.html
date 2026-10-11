@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>纯逻辑扫雷（保证无需猜测）</title>
+<style>
+  body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;background:#1e293b;color:#e2e8f0;margin:0;display:flex;flex-direction:column;align-items:center;padding:16px;min-height:100vh;box-sizing:border-box}
+  h1{font-size:22px;margin:6px 0}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin-bottom:8px;font-size:14px}
+  input[type=number]{font-size:14px;padding:5px 6px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}
+  select,button{font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #475569;background:#334155;color:#e2e8f0;cursor:pointer}
+  button:hover,select:hover{background:#475569}
+  #info{font-size:14px;min-height:22px;margin:6px 0;text-align:center}
+  .wrap{overflow:auto;max-width:100%}
+  #board{display:grid;gap:2px;background:#0f172a;padding:6px;border-radius:8px;user-select:none;width:max-content;margin:0 auto}
+  .c{width:var(--cs,28px);height:var(--cs,28px);display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:calc(var(--cs,28px)*0.55);border-radius:3px;background:#475569;cursor:pointer;box-sizing:border-box}
+  .c:hover{background:#64748b}
+  .c.o{background:#e2e8f0;color:#111;cursor:default}
+  .c.o:hover{background:#e2e8f0}
+  .c.wf{background:#7f1d1d}
+  .c.boom{background:#dc2626}
+  .c.hint{outline:3px solid #facc15;outline-offset:-3px}
+  .n1{color:#2563eb}.n2{color:#16a34a}.n3{color:#dc2626}.n4{color:#7c3aed}
+  .n5{color:#9a3412}.n6{color:#0891b2}.n7{color:#111}.n8{color:#666}
+  .note{font-size:12px;color:#94a3b8;margin-top:12px;max-width:640px;text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>纯逻辑扫雷</h1>
+<div class="bar">
+  <label>难度
+    <select id="diff">
+      <option value="easy">初级 9×9 / 10雷</option>
+      <option value="medium" selected>中级 16×16 / 40雷</option>
+      <option value="hard">高级 30×16 / 99雷</option>
+      <option value="custom">自定义</option>
+    </select>
+  </label>
+  <span id="cust" style="display:none">
+    宽 <input id="cw" type="number" min="5" max="50" value="30" style="width:56px">
+    高 <input id="ch" type="number" min="5" max="50" value="16" style="width:56px">
+    雷数 <input id="cm" type="number" min="1" value="120" style="width:70px">
+    <span id="cmax" style="color:#94a3b8"></span>
+  </span>
+  <label style="cursor:pointer" title="已翻开的数字格，若周围未开格数等于数字，则全部标雷"><input type="checkbox" id="auto" checked> 自动标雷</label>
+  <label style="cursor:pointer" title="开启后：点击的格子只要不是逻辑上确定安全，就判为雷，从而杜绝猜测"><input type="checkbox" id="strict" checked> 防猜测</label>
+  <button id="reset">新游戏</button>
+  <button id="hint">提示</button>
+  <span>剩余雷数：<b id="left">-</b></span>
+  <span>用时：<b id="time">0</b>s</span>
+</div>
+<div id="info"></div>
+<div class="wrap"><div id="board"></div></div>
+<div class="note">
+  左键翻开，右键插旗/取消，点击已翻开的数字可对其周围已插旗的格子进行快速展开。<br>
+  自定义模式可设置任意尺寸（5–50）和雷数（最多为 宽×高−9，以保证首击开空）。棋盘生成时，求解器做完整逻辑推理（把数字与总雷数看作线性约束，检查每个未知格在所有可能布局中是否唯一确定）；只有能被它从头解完的棋盘才会被采用，因此该棋盘无需猜测即可完成。生成限时 15 秒，超时则放弃并提示。
+</div>
+
+<script>
+// ===== 难度参数 =====
+const DIFF = {
+  easy:   {W:9,  H:9,  M:10,  name:'初级'},
+  medium: {W:16, H:16, M:40,  name:'中级'},
+  hard:   {W:30, H:16, M:99,  name:'高级'}
+};
+
+// ===== 时限控制 =====
+let DEADLINE=Infinity;
+let _ops=0;
+const TIMEOUT={timeout:true};
+function setDeadline(t){ DEADLINE=t; }
+function checkDeadline(){ if(Date.now()>DEADLINE) throw TIMEOUT; }
+
+// ===== 基础棋盘 =====
+function buildNB(W,H){
+  const NB=[];
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const r=[];
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      if(!dx&&!dy)continue;
+      const nx=x+dx,ny=y+dy;
+      if(nx>=0&&ny>=0&&nx<W&&ny<H) r.push(ny*W+nx);
+    }
+    NB.push(r);
+  }
+  return NB;
+}
+
+function makeBoard(W,H,M,start,NB){
+  const N=W*H, excl=new Uint8Array(N);
+  excl[start]=1; for(const n of NB[start]) excl[n]=1;
+  const cand=[];
+  for(let i=0;i<N;i++) if(!excl[i]) cand.push(i);
+  for(let i=cand.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[cand[i],cand[j]]=[cand[j],cand[i]];}
+  const mine=new Uint8Array(N);
+  for(let k=0;k<M;k++) mine[cand[k]]=1;
+  const num=new Uint8Array(N);
+  for(let i=0;i<N;i++){let c=0; for(const n of NB[i]) c+=mine[n]; num[i]=c;}
+  return {W,H,N,M,mine,num,NB};
+}
+
+function reveal(b,rev,i){
+  if(rev[i]||b.mine[i]) return 0;
+  const st=[i]; let cnt=0;
+  while(st.length){
+    const c=st.pop();
+    if(rev[c]) continue;
+    rev[c]=1; cnt++;
+    if(b.num[c]===0) for(const n of b.NB[c]) if(!rev[n]&&!b.mine[n]) st.push(n);
+  }
+  return cnt;
+}
+
+// ===== 完整逻辑求解器 =====
+// 线性约束：已翻开的数字 = 周围雷数；全局约束：未翻开雷总数 = 剩余雷数。
+
+// 集合卷积：A 中每个可能雷数 a 与 B 中每个 b 相加（位掩码表示）
+function sumset(A,B){
+  let r=0n, a=0n, t=A;
+  while(t){
+    if(t&1n) r|=B<<a;
+    t>>=1n; a+=1n;
+  }
+  return r;
+}
+
+// 连通块的前沿动态规划：返回该块所有可能雷数的位掩码
+// fp/fv：强制第 fp 个位置为 fv；fa：每个位置的固定值（-1 表示自由）
+function compMask(cp, fp, fv, fa){
+  const n=cp.order.length, nc=cp.cl.length;
+  const res=new Int32Array(nc), rem=new Int32Array(nc);
+  for(let k=0;k<nc;k++){ res[k]=cp.cl[k].need; rem[k]=cp.cl[k].ps.length; }
+  const memo=new Map();
+  const f=p=>{
+    if(p===n) return 1n;
+    if((++_ops&255)===0) checkDeadline();
+    let key=p+':';
+    for(const k of cp.openAt[p]) key+=res[k]+',';
+    const got=memo.get(key);
+    if(got!==undefined) return got;
+    let total=0n;
+    const cl=cp.consOfPos[p];
+    for(let v=0;v<=1;v++){
+      if(p===fp && v!==fv) continue;
+      if(fa && fa[p]>=0 && v!==fa[p]) continue;
+      let ok=true;
+      for(const k of cl){ res[k]-=v; rem[k]--; if(res[k]<0||res[k]>rem[k]) ok=false; }
+      if(ok){ const sub=f(p+1); total |= (v? (sub<<1n) : sub); }
+      for(const k of cl){ res[k]+=v; rem[k]++; }
+    }
+    memo.set(key,total);
+    return total;
+  };
+  return f(0);
+}
+
+// 预处理：约束、连通块、内部格。known 为已确定的雷（可为全 0）
+function buildProblem(b, rev, known){
+  checkDeadline();
+  const N=b.N, NB=b.NB;
+  let knownCnt=0, unknownCnt=0;
+  for(let i=0;i<N;i++){ if(known[i]) knownCnt++; else if(!rev[i]) unknownCnt++; }
+  const Mrem=b.M-knownCnt;
+
+  const cons=[];
+  const inCons=new Uint8Array(N);
+  const cellCons=new Array(N);
+  for(let i=0;i<N;i++){
+    if(!rev[i]||b.num[i]===0) continue;
+    const cells=[]; let need=b.num[i];
+    for(const n of NB[i]){
+      if(known[n]) need--;
+      else if(!rev[n]) cells.push(n);
+    }
+    if(cells.length){
+      const id=cons.length;
+      cons.push({cells,need,id});
+      for(const x of cells){ inCons[x]=1; (cellCons[x]||(cellCons[x]=[])).push(id); }
+    }
+  }
+
+  const par=new Int32Array(N); for(let i=0;i<N;i++) par[i]=i;
+  const find=x=>{ while(par[x]!==x){ par[x]=par[par[x]]; x=par[x]; } return x; };
+  for(const c of cons) for(let k=1;k<c.cells.length;k++){
+    const a=find(c.cells[0]), bb=find(c.cells[k]);
+    if(a!==bb) par[a]=bb;
+  }
+  const rootMap=new Map(), comps=[];
+  for(let x=0;x<N;x++) if(inCons[x]){
+    const r=find(x);
+    let cp=rootMap.get(r);
+    if(!cp){ cp={cells:[],cons:[]}; rootMap.set(r,cp); comps.push(cp); }
+    cp.cells.push(x);
+  }
+  for(const c of cons) rootMap.get(find(c.cells[0])).cons.push(c);
+
+  for(const cp of comps){
+    const order=[], seenCell=new Set([cp.cells[0]]), q=[cp.cells[0]], seenCons=new Set();
+    for(let qi=0;qi<q.length;qi++){
+      const x=q[qi]; order.push(x);
+      for(const ci of cellCons[x]) if(!seenCons.has(ci)){
+        seenCons.add(ci);
+        for(const y of cons[ci].cells) if(!seenCell.has(y)){ seenCell.add(y); q.push(y); }
+      }
+    }
+    cp.order=order;
+    cp.posOf=new Map(order.map((x,p)=>[x,p]));
+    cp.cl=cp.cons.map(c=>({ps:c.cells.map(x=>cp.posOf.get(x)).sort((a,b)=>a-b), need:c.need}));
+    const n=order.length;
+    cp.consOfPos=Array.from({length:n},()=>[]);
+    cp.cl.forEach((c,k)=>c.ps.forEach(p=>cp.consOfPos[p].push(k)));
+    cp.openAt=Array.from({length:n+1},()=>[]);
+    cp.cl.forEach((c,k)=>{
+      const first=c.ps[0], last=c.ps[c.ps.length-1];
+      for(let p=first+1;p<=last;p++) cp.openAt[p].push(k);
+    });
+  }
+
+  const interiorCells=[];
+  for(let i=0;i<N;i++) if(!rev[i]&&!known[i]&&!inCons[i]) interiorCells.push(i);
+
+  const compOf=new Map();
+  comps.forEach((cp,ci)=>cp.cells.forEach(x=>compOf.set(x,ci)));
+  return {Mrem, comps, interiorCells, compOf};
+}
+
+// 对固定赋值（Map: 格子 -> 0/1）计算连通块掩码
+function compMaskFixed(cp, fixedVal){
+  const fa=new Int8Array(cp.order.length).fill(-1);
+  for(let p=0;p<cp.order.length;p++){
+    const v=fixedVal.get(cp.order[p]);
+    if(v!==undefined) fa[p]=v;
+  }
+  return compMask(cp,-1,0,fa);
+}
+function allMasks(P,fixedVal){ return P.comps.map(cp=>compMaskFixed(cp,fixedVal)); }
+
+// 内部格（无约束）的雷数掩码：已固定的内部格计入，其余自由
+function intMaskOf(P,fixedVal){
+  let kf=0, nf=0;
+  for(const x of P.interiorCells){
+    const v=fixedVal.get(x);
+    if(v!==undefined){ nf++; kf+=v; }
+  }
+  const If=P.interiorCells.length-nf;
+  return ((1n<<BigInt(If+1))-1n)<<BigInt(kf);
+}
+
+// 是否存在满足全部约束、总雷数正确、且满足固定赋值的布局
+function feasibleWith(P,masks,fixedVal){
+  let t=intMaskOf(P,fixedVal);
+  for(const m of masks) t=sumset(t,m);
+  return ((t>>BigInt(P.Mrem))&1n)===1n;
+}
+
+// 完整逻辑推理：返回所有能被确定的安全格与雷格
+function fullDeduce(b, rev, known){
+  const P=buildProblem(b,rev,known);
+  const safe=[], mines=[];
+  if(P.Mrem<0) return {safe,mines};
+  const base=allMasks(P,new Map());
+
+  if(P.interiorCells.length>0){
+    const x0=P.interiorCells[0];
+    const canMine=feasibleWith(P,base,new Map([[x0,1]]));
+    const canSafe=feasibleWith(P,base,new Map([[x0,0]]));
+    if(!canMine) safe.push(...P.interiorCells);
+    else if(!canSafe) mines.push(...P.interiorCells);
+  }
+
+  P.comps.forEach((cp,ci)=>{
+    for(const x of cp.order){
+      const fm=new Map([[x,1]]), f0=new Map([[x,0]]);
+      const m1=base.slice(); m1[ci]=compMaskFixed(cp,fm);
+      const m0=base.slice(); m0[ci]=compMaskFixed(cp,f0);
+      const canMine=feasibleWith(P,m1,fm);
+      const canSafe=feasibleWith(P,m0,f0);
+      if(!canMine) safe.push(x);
+      else if(!canSafe) mines.push(x);
+    }
+  });
+  return {safe,mines};
+}
+
+// 完整逻辑求解：反复推理直到无进展（确定结论只增不减，贪心即完备）
+function solve(b,rev0,record){
+  const rev=rev0.slice();
+  const known=new Uint8Array(b.N);
+  while(true){
+    const {safe,mines}=fullDeduce(b,rev,known);
+    if(record && !record.first && (safe.length||mines.length)) record.first={safe,mines};
+    if(safe.length===0 && mines.length===0) break;
+    for(const x of mines) known[x]=1;
+    for(const x of safe) reveal(b,rev,x);
+  }
+  let opened=0;
+  for(let i=0;i<b.N;i++) if(rev[i]) opened++;
+  return {solved: opened===b.N-b.M, rev, known};
+}
+
+// ===== 防猜测：判定与布局重构 =====
+
+// 玩家点击的格子在当前已翻开信息下是否一定安全（即“是雷”不可能成立）
+function isCertainlySafe(b,rev,c){
+  const P=buildProblem(b,rev,new Uint8Array(b.N));
+  if(P.Mrem<0) return false;
+  const fv=new Map([[c,1]]);
+  return !feasibleWith(P,allMasks(P,fv),fv);
+}
+
+// 构造一个合法布局：所有已翻开数字一致、总雷数为 M、且 mustMine 为雷
+function findLayout(b,rev,mustMine){
+  const P=buildProblem(b,rev,new Uint8Array(b.N));
+  if(P.Mrem<0) return null;
+  const fixedVal=new Map([[mustMine,1]]);
+  let masks=allMasks(P,fixedVal);
+  if(!feasibleWith(P,masks,fixedVal)) return null;
+  const order=[];
+  for(const cp of P.comps) for(const x of cp.order) order.push(x);
+  for(const x of P.interiorCells) order.push(x);
+  for(const x of order){
+    if(fixedVal.has(x)) continue;
+    const ci=P.compOf.get(x);
+    fixedVal.set(x,0);
+    if(ci===undefined){
+      if(feasibleWith(P,masks,fixedVal)) continue;
+    } else {
+      const nm=masks.slice();
+      nm[ci]=compMaskFixed(P.comps[ci],fixedVal);
+      if(feasibleWith(P,nm,fixedVal)){ masks=nm; continue; }
+    }
+    fixedVal.set(x,1);
+    if(ci!==undefined){
+      masks=masks.slice();
+      masks[ci]=compMaskFixed(P.comps[ci],fixedVal);
+    }
+  }
+  const layout=new Uint8Array(b.N);
+  for(const [x,v] of fixedVal) layout[x]=v;
+  return layout;
+}
+
+// ===== 棋盘生成 =====
+function generate(W,H,M,start,NB,maxTries=20000){
+  for(let t=1;t<=maxTries;t++){
+    const b=makeBoard(W,H,M,start,NB);
+    const rev=new Uint8Array(b.N);
+    reveal(b,rev,start);
+    if(solve(b,rev).solved) return {b,tries:t};
+  }
+  return null;
+}
+
+// 带时限的异步生成：每次尝试都可被截止时间中断，尝试之间让出线程
+async function generateAsync(W,H,M,start,NB,budgetMs,alive){
+  const end=Date.now()+budgetMs;
+  let t=0;
+  while(Date.now()<end && alive()){
+    t++;
+    setDeadline(end);
+    try{
+      const b=makeBoard(W,H,M,start,NB);
+      const rev=new Uint8Array(b.N);
+      reveal(b,rev,start);
+      if(solve(b,rev).solved){ setDeadline(Infinity); return {b,tries:t}; }
+    }catch(e){
+      if(e!==TIMEOUT){ setDeadline(Infinity); throw e; }
+    }
+    setDeadline(Infinity);
+    await new Promise(r=>setTimeout(r,0));
+  }
+  setDeadline(Infinity);
+  return null;
+}
+
+if(typeof document!=='undefined'){
+  const boardEl=document.getElementById('board');
+  const info=document.getElementById('info');
+  const sel=document.getElementById('diff');
+  const leftEl=document.getElementById('left');
+  const timeEl=document.getElementById('time');
+  const autoEl=document.getElementById('auto');
+  const strictEl=document.getElementById('strict');
+  const custEl=document.getElementById('cust');
+  const cwEl=document.getElementById('cw'), chEl=document.getElementById('ch'), cmEl=document.getElementById('cm'), cmaxEl=document.getElementById('cmax');
+  const GEN_BUDGET=15000;
+
+  let cfg, NB, b=null, rev=null, flag=null, over=false, hintCell=-1, boomCell=-1;
+  let startT=0, timer=null, gid=0, genBusy=false;
+
+  const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,Math.floor(Number(v)||lo)));
+
+  // 读取当前难度参数；自定义模式下做范围校验
+  function readConfig(){
+    if(sel.value!=='custom') return {...DIFF[sel.value]};
+    const W=clamp(cwEl.value,5,50), H=clamp(chEl.value,5,50);
+    const maxM=W*H-9;
+    const M=clamp(cmEl.value,1,maxM);
+    cwEl.value=W; chEl.value=H; cmEl.value=M;
+    cmaxEl.textContent=`（雷数 1–${maxM}）`;
+    return {W,H,M,name:'自定义'};
+  }
+
+  function init(){
+    gid++; genBusy=false;
+    custEl.style.display = sel.value==='custom' ? '' : 'none';
+    cfg=readConfig();
+    NB=buildNB(cfg.W,cfg.H);
+    b=null; rev=null; over=false; hintCell=-1; boomCell=-1;
+    flag=new Uint8Array(cfg.W*cfg.H);
+    stopTimer(); timeEl.textContent='0';
+    const cs = cfg.W>30 ? 22 : 28;
+    boardEl.style.setProperty('--cs', cs+'px');
+    boardEl.style.gridTemplateColumns=`repeat(${cfg.W},${cs}px)`;
+    boardEl.innerHTML='';
+    for(let i=0;i<cfg.W*cfg.H;i++){
+      const d=document.createElement('div');
+      d.className='c'; d.dataset.i=i;
+      boardEl.appendChild(d);
+    }
+    info.textContent=`${cfg.W}×${cfg.H}，${cfg.M} 雷。首次点击任意格子开始（生成限时 15 秒）。`;
+    render();
+  }
+
+  function startTimer(){
+    startT=Date.now();
+    stopTimer();
+    timer=setInterval(()=>{timeEl.textContent=Math.floor((Date.now()-startT)/1000);},250);
+  }
+  function stopTimer(){ if(timer){clearInterval(timer);timer=null;} }
+
+  function render(){
+    const kids=boardEl.children;
+    let f=0; for(let i=0;i<flag.length;i++) if(flag[i]) f++;
+    leftEl.textContent = cfg.M - f;
+    for(let i=0;i<kids.length;i++){
+      const d=kids[i];
+      let cls='c', txt='';
+      if(rev && rev[i]){
+        cls+=' o';
+        if(b.num[i]>0){ txt=b.num[i]; cls+=' n'+b.num[i]; }
+      } else if(over && b && b.mine[i] && !flag[i]){
+        txt='💣'; if(i===boomCell) cls+=' boom';
+      } else if(over && flag[i] && (!b || !b.mine[i])){
+        txt='❌'; cls+=' wf';
+      } else if(flag[i]){
+        txt='🚩';
+        if(over) cls+=' o';
+      }
+      if(i===hintCell) cls+=' hint';
+      d.className=cls;
+      d.textContent=txt;
+    }
+  }
+
+  // 异步生成，界面显示进度，超过 15 秒则放弃
+  async function startGen(i, my){
+    const t0=Date.now();
+    let tick=setInterval(()=>{
+      if(my!==gid) return;
+      info.textContent=`生成中… 已用 ${((Date.now()-t0)/1000).toFixed(1)} 秒 / 15 秒`;
+    },200);
+    let g=null, err=null;
+    try{
+      g=await generateAsync(cfg.W,cfg.H,cfg.M,i,NB,GEN_BUDGET,()=>my===gid);
+    }catch(e){ err=e; }
+    clearInterval(tick);
+    if(my!==gid) return;
+    genBusy=false;
+    if(err){ info.textContent='生成出错：'+err.message; return; }
+    if(!g){
+      info.textContent='15 秒内未能生成可纯逻辑解出的该规模棋盘，已放弃。可减少雷数或换个位置再点一次。';
+      render(); return;
+    }
+    b=g.b;
+    rev=new Uint8Array(b.N);
+    reveal(b,rev,i);
+    autoFlag();
+    info.textContent=`棋盘已生成（尝试 ${g.tries} 次，用时 ${((Date.now()-t0)/1000).toFixed(1)} 秒，已用完整逻辑确认无需猜测）`;
+    startTimer();
+    render();
+  }
+
+  // 判定玩家点的格子是否安全
+  // 防猜测开启：只要“是雷”在当前已翻开信息下可能成立，就判为雷（即该格不是逻辑上确定安全）
+  // 防猜测关闭：按真实布雷判定
+  function judgeSafe(i){
+    if(!strictEl.checked) return !b.mine[i];
+    return isCertainlySafe(b,rev,i);
+  }
+
+  function onLeft(i){
+    if(over) return;
+    if(!b){
+      if(genBusy) return;
+      genBusy=true;
+      startGen(i, gid);
+      return;
+    }
+    if(rev[i]){ chord(i); return; }
+    if(flag[i]) return;
+    if(!judgeSafe(i)){ lose(i); return; }
+    reveal(b,rev,i);
+    hintCell=-1;
+    check(); render();
+  }
+
+  function chord(i){
+    if(b.num[i]===0) return;
+    let f=0; for(const n of b.NB[i]) if(flag[n]) f++;
+    if(f!==b.num[i]) return;
+    for(const n of b.NB[i]){
+      if(rev[n]||flag[n]) continue;
+      if(!judgeSafe(n)){ lose(n); return; }
+      reveal(b,rev,n);
+    }
+    hintCell=-1;
+    check(); render();
+  }
+
+  function onRight(i){
+    if(over||!b||rev[i]) return;
+    flag[i]=flag[i]?0:1;
+    hintCell=-1;
+    render();
+  }
+
+  // 自动标雷规则：已翻开的数字格，若周围未翻开的格子数 == 数字，则把这些格子全部标雷；其他情况不标
+  function autoFlag(){
+    if(!autoEl.checked || !b || over) return;
+    for(let i=0;i<b.N;i++){
+      if(!rev[i] || b.num[i]===0) continue;
+      const unopened=b.NB[i].filter(n=>!rev[n]);
+      if(unopened.length===b.num[i]){
+        for(const n of unopened) flag[n]=1;
+      }
+    }
+  }
+
+  function check(){
+    autoFlag();
+    let opened=0; for(let i=0;i<b.N;i++) if(rev[i]) opened++;
+    if(opened===b.N-b.M){
+      over=true; stopTimer();
+      for(let i=0;i<b.N;i++) if(b.mine[i]) flag[i]=1;
+      info.textContent=`🎉 胜利！用时 ${Math.floor((Date.now()-startT)/1000)} 秒`;
+      render();
+    }
+  }
+
+  function lose(i){
+    const guess = !b.mine[i];
+    if(guess && strictEl.checked){
+      // 防猜测判成雷：重构一个合法布局（所有已翻开数字不变、总雷数不变，且该格为雷）
+      const lay=findLayout(b,rev,i);
+      if(lay){
+        b.mine=lay;
+        for(let k=0;k<b.N;k++){ let c=0; for(const n of b.NB[k]) c+=lay[n]; b.num[k]=c; }
+      }
+    }
+    over=true; boomCell=i; stopTimer();
+    info.textContent = guess && strictEl.checked
+      ? '💥 这一步是猜测（该格并非逻辑上确定安全），判为雷！'
+      : '💥 踩雷了！点“新游戏”再来一局';
+    render();
+  }
+
+  function hint(){
+    if(!b||over){ info.textContent='请先开始游戏'; return; }
+    const rec={};
+    solve(b,rev,rec);
+    if(!rec.first){
+      info.textContent='当前局面用完整逻辑也推不出新的确定格，请再仔细检查数字和已插的旗。';
+      hintCell=-1; render(); return;
+    }
+    if(rec.first.safe.length){
+      hintCell=rec.first.safe[0];
+      info.textContent='提示：黄框格子一定安全，可以翻开。';
+    } else {
+      hintCell=rec.first.mines[0];
+      info.textContent='提示：黄框格子一定是雷，可以插旗。';
+    }
+    render();
+  }
+
+  boardEl.addEventListener('click',e=>{
+    const t=e.target.closest('.c'); if(!t) return;
+    onLeft(+t.dataset.i);
+  });
+  boardEl.addEventListener('contextmenu',e=>{
+    e.preventDefault();
+    const t=e.target.closest('.c'); if(!t) return;
+    onRight(+t.dataset.i);
+  });
+  document.getElementById('reset').onclick=init;
+  document.getElementById('hint').onclick=hint;
+  sel.onchange=init;
+  [cwEl,chEl,cmEl].forEach(el=>el.onchange=init);
+  autoEl.onchange=()=>{ autoFlag(); render(); };
+  init();
+}
+
+</script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a48bf96f3afdcabc',t:'MTc5MTcwMTg4NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
