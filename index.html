@@ -1,812 +1,1683 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>纯逻辑扫雷（保证无需猜测）</title>
+<title>扫雷</title>
 <style>
-  body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;background:#1e293b;color:#e2e8f0;margin:0;display:flex;flex-direction:column;align-items:center;padding:16px;min-height:100vh;box-sizing:border-box}
-  h1{font-size:22px;margin:6px 0}
-  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin-bottom:8px;font-size:14px}
-  input[type=number]{font-size:14px;padding:5px 6px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}
-  select,button{font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #475569;background:#334155;color:#e2e8f0;cursor:pointer}
-  button:hover,select:hover{background:#475569}
-  #info{font-size:14px;min-height:22px;margin:6px 0;text-align:center}
-  .wrap{overflow:auto;width:100%}
-  .rbar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
-  #board,#reviewBoard{display:grid;gap:2px;background:#0f172a;padding:6px;border-radius:8px;user-select:none;width:max-content;margin:0 auto}
-  .c{width:var(--cs,28px);height:var(--cs,28px);display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:calc(var(--cs,28px)*0.55);border-radius:3px;background:#475569;cursor:pointer;box-sizing:border-box}
-  .c:hover{background:#64748b}
-  .c.o{background:#e2e8f0;color:#111;cursor:default}
-  .c.o:hover{background:#e2e8f0}
-  .c.wf{background:#7f1d1d}
-  .c.boom{background:#dc2626}
-  .c.hint{outline:3px solid #facc15;outline-offset:-3px}
-  .n1{color:#2563eb}.n2{color:#16a34a}.n3{color:#dc2626}.n4{color:#7c3aed}
-  .n5{color:#9a3412}.n6{color:#0891b2}.n7{color:#111}.n8{color:#666}
-  .note{font-size:12px;color:#94a3b8;margin-top:12px;max-width:640px;text-align:left;line-height:1.6}
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:#008080;
+    font-family:"Microsoft Sans Serif", Tahoma, "Microsoft YaHei", Arial, sans-serif;
+    font-size:12px; color:#000;
+    display:flex; align-items:center; justify-content:center;
+    user-select:none; -webkit-user-select:none;
+  }
+  /* 窗口外框：凸起 */
+  .win {
+    background:#c0c0c0; padding:4px 4px 14px;
+    border:2px solid; border-color:#dfdfdf #000 #000 #dfdfdf;
+    box-shadow: inset 1px 1px #fff, inset -1px -1px #808080;
+    position:relative; display:flex; flex-direction:column; box-sizing:border-box;
+  }
+  /* 可缩放内容区：整体按窗口大小等比缩放（最大 4 倍） */
+  #content { margin:auto; flex:none; }
+  /* 右下角缩放手柄 */
+  .grip {
+    position:absolute; right:2px; bottom:2px; width:12px; height:12px; cursor:nwse-resize;
+    background:linear-gradient(135deg, transparent 0 40%, #808080 40% 48%, transparent 48% 58%, #808080 58% 66%, transparent 66% 76%, #808080 76% 84%, transparent 84%);
+  }
+  /* 全屏（铺满页面）模式 */
+  .win.full { position:fixed; inset:0; width:100vw !important; height:100vh !important; margin:0; }
+  .win.full .grip { display:none; }
+  .titlebar {
+    height:20px; display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(90deg,#000080,#1084d0); color:#fff; font-weight:bold; padding:0 3px 0 4px;
+    font-size:12px;
+  }
+  .titlebar .t { display:flex; align-items:center; gap:4px; }
+  .titlebar .btns { display:flex; gap:2px; }
+  .tbtn {
+    width:16px; height:14px; background:#c0c0c0; color:#000; font-size:11px; line-height:12px; text-align:center; font-weight:bold;
+    border:1px solid; border-color:#fff #000 #000 #fff; box-shadow: inset -1px -1px #808080;
+  }
+  .menubar { display:flex; gap:0; margin:2px 0 4px; position:relative; }
+  .menu-title { padding:2px 7px; cursor:default; position:relative; }
+  .menu-title.open, .menu-title:hover { background:#000080; color:#fff; }
+  .dropdown {
+    display:none; position:absolute; top:100%; left:0; background:#c0c0c0; min-width:190px; z-index:20;
+    border:2px solid; border-color:#fff #000 #000 #fff; box-shadow: 1px 1px 0 #000;
+    padding:2px;
+  }
+  .dropdown.show { display:block; }
+  .mi { padding:3px 18px 3px 22px; white-space:nowrap; position:relative; cursor:default; }
+  .mi:hover { background:#000080; color:#fff; }
+  .mi .chk { position:absolute; left:6px; top:3px; }
+  .mi .key { float:right; margin-left:24px; color:inherit; opacity:.8; }
+  .sep { height:1px; background:#808080; border-bottom:1px solid #fff; margin:3px 2px; }
+
+  /* 凹陷面板 */
+  .sunken { border:2px solid; border-color:#808080 #fff #fff #808080; padding:0; }
+
+  .header {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:5px 6px; margin:0 0 6px;
+  }
+  .lcd {
+    background:#000; color:#ff0000; width:50px; height:27px;
+    font-family:"Courier New", Consolas, monospace; font-weight:bold; font-size:26px; line-height:27px;
+    text-align:right; padding-right:3px; letter-spacing:0; overflow:hidden;
+    border:1px solid; border-color:#808080 #fff #fff #808080;
+    text-shadow:0 0 2px #f00;
+  }
+  .face {
+    width:28px; height:28px; cursor:pointer; padding:0; background:#c0c0c0;
+    border:2px solid; border-color:#fff #808080 #808080 #fff;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .face.down { border-color:#808080 #fff #fff #808080; }
+  .face svg { display:block; }
+
+  .board { display:inline-grid; padding:0; background:#c0c0c0; margin:0 6px 6px; }
+  .cell {
+    width:16px; height:16px; display:flex; align-items:center; justify-content:center;
+    font-weight:bold; font-size:13px; line-height:1; cursor:default;
+    background:#c0c0c0;
+    border:2px solid; border-color:#fff #808080 #808080 #fff;
+    box-shadow: inset -1px -1px #000;
+  }
+  .cell.open {
+    border:1px solid #808080; box-shadow:none; background:#c0c0c0;
+  }
+  .cell.press { border:1px solid #808080; box-shadow:none; }
+  .cell.boom { background:#ff0000 !important; }
+  .n1{color:#0000ff}.n2{color:#008000}.n3{color:#ff0000}.n4{color:#000080}
+  .n5{color:#800000}.n6{color:#008080}.n7{color:#000000}.n8{color:#808080}
+  .cell svg { display:block; }
+  .q { font-weight:bold; color:#000; }
+
+  /* 对话框 */
+  .dlg-mask { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.0); z-index:50; }
+  .dlg-mask.show { display:flex; }
+  .dlg {
+    background:#c0c0c0; padding:10px 14px; min-width:260px;
+    border:2px solid; border-color:#fff #000 #000 #fff; box-shadow: inset -1px -1px #808080, 2px 2px 0 #000;
+  }
+  .dlg h3 { margin:0 0 8px; font-size:12px; background:linear-gradient(90deg,#000080,#1084d0); color:#fff; padding:2px 4px; }
+  .dlg label { display:flex; justify-content:space-between; align-items:center; margin:4px 0; }
+  .dlg input { width:70px; font-size:12px; }
+  .dlg .row { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+  .btn { min-width:70px; padding:3px 10px; background:#c0c0c0; border:2px solid; border-color:#fff #000 #000 #fff; box-shadow: inset -1px -1px #808080; font-family:inherit; font-size:12px; cursor:default; }
+  .btn:active { border-color:#000 #fff #fff #000; }
+  .about p { margin:4px 0; }
+  .hint { color:#444; font-size:11px; margin-top:6px; }
+  .status { margin:0 2px; font-size:12px; color:#000; display:flex; justify-content:space-between; }
+  .mi.disabled, .mi.disabled:hover { color:#808080; background:none; cursor:default; }
+  .dlg.review { min-width:0; width:auto; max-width:94vw; }
+  .rnav { display:flex; gap:6px; align-items:center; justify-content:center; flex-wrap:wrap; margin-bottom:6px; }
+  .rnav .rinfo { min-width:300px; text-align:left; font-size:12px; }
+  .rwrap { overflow:auto; max-width:90vw; max-height:70vh; background:#c0c0c0; }
+  .rboard { display:inline-grid; gap:0; }
+  .rc { width:24px; height:24px; box-sizing:border-box; display:flex; align-items:center; justify-content:center;
+        font-size:8px; font-weight:bold; line-height:1; background:#c0c0c0; color:#000;
+        border:1px solid; border-color:#fff #808080 #808080 #fff; overflow:hidden; white-space:nowrap; }
+  .rc.o { border:1px solid #808080; font-size:13px; }
+  .rc.hi { background:#ff8c8c; color:#000; }
+  .rc.safe { background:#b8ffb8; }
+  .rc.lo { color:#606060; font-weight:normal; }
+  .rc.mine { background:#ff0000; }
+  .note-r { font-size:11px; color:#333; margin-top:6px; text-align:left; line-height:1.5; }
 </style>
 </head>
 <body>
-<h1>纯逻辑扫雷</h1>
-<div class="bar">
-  <label>难度
-    <select id="diff">
-      <option value="easy">初级 9×9 / 10雷</option>
-      <option value="medium" selected>中级 16×16 / 40雷</option>
-      <option value="hard">高级 30×16 / 99雷</option>
-      <option value="custom">自定义</option>
-    </select>
-  </label>
-  <span id="cust" style="display:none">
-    宽 <input id="cw" type="number" min="5" max="50" value="30" style="width:56px">
-    高 <input id="ch" type="number" min="5" max="50" value="16" style="width:56px">
-    雷数 <input id="cm" type="number" min="1" value="120" style="width:70px">
-    <span id="cmax" style="color:#94a3b8"></span>
-  </span>
-  <label style="cursor:pointer" title="已翻开的数字格，若周围未开格数等于数字，则全部标雷"><input type="checkbox" id="auto" checked> 自动标雷</label>
-  <label style="cursor:pointer" title="开启后：点击的格子只要不是逻辑上确定安全，就判为雷，从而杜绝猜测"><input type="checkbox" id="strict" checked> 防猜测</label>
-  <button id="reset">新游戏</button>
-  <button id="hint">提示</button>
-  <button id="review" style="display:none" title="一局结束后可用：查看每一步的邻格雷概率">反思</button>
-  <span>剩余雷数：<b id="left">-</b></span>
-  <span>用时：<b id="time">0</b>s</span>
-</div>
-<div id="info"></div>
-<div class="wrap"><div id="board"></div></div>
-<div id="reviewPanel" style="display:none;margin-top:12px;border-top:1px solid #334155;padding-top:10px;width:100%">
-  <div class="rbar"><button id="rFirst">⏮ 首步</button><button id="rPrev">◀ 上一步</button><span id="rInfo" style="min-width:260px"></span><button id="rNext">下一步 ▶</button><button id="rLast">末步 ⏭</button><button id="rClose">关闭</button></div>
-  <div class="wrap"><div id="reviewBoard"></div></div>
-  <div class="note" style="text-align:center">红色 = 100% 是雷，绿色 = 100% 是安全（只显示 100% / 0%）；其余前沿格（与已翻开数字相邻）显示为雷的概率。概率按所有与已翻开数字一致的布局等权精确计算。</div>
-</div>
-<details class="note"><summary style="cursor:pointer">玩法说明（点击展开）</summary>
-  左键翻开，右键插旗/取消，点击已翻开的数字可对其周围已插旗的格子进行快速展开。<br>
-  自定义模式可设置任意尺寸（5–50）和雷数（最多为 宽×高−9，以保证首击开空）。棋盘生成时，求解器做完整逻辑推理（把数字与总雷数看作线性约束，检查每个未知格在所有可能布局中是否唯一确定）；只有能被它从头解完的棋盘才会被采用，因此该棋盘无需猜测即可完成。生成限时 15 秒，超时则放弃并提示。
-</details>
+<div class="win" id="win">
+  <div class="titlebar">
+    <div class="t">
+      <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4" fill="#000"/><rect x="6.5" y="0" width="1" height="14" fill="#000"/><rect x="0" y="6.5" width="14" height="1" fill="#000"/><circle cx="5.5" cy="5.5" r="1" fill="#fff"/></svg>
+      <span>扫雷</span>
+    </div>
+    <div class="btns"><div class="tbtn">_</div><div class="tbtn" id="btnFull" title="全屏 / 窗口"></div><div class="tbtn">×</div></div>
+  </div>
 
+  <div id="content">
+  <div class="menubar" id="menubar">
+    <div class="menu-title" data-menu="game">游戏(G)
+      <div class="dropdown" id="m-game">
+        <div class="mi" data-act="new">新游戏(N)<span class="key">F2</span></div>
+        <div class="mi disabled" data-act="replay" id="mi-replay">重新游玩(P)</div>
+        <div class="mi" data-act="savedlg">存档与导入(V)...</div>
+        <div class="sep"></div>
+        <div class="mi" data-act="easy"><span class="chk" data-chk="easy"></span>初级</div>
+        <div class="mi" data-act="medium"><span class="chk" data-chk="medium"></span>中级</div>
+        <div class="mi" data-act="hard"><span class="chk" data-chk="hard"></span>高级</div>
+        <div class="mi" data-act="custom"><span class="chk" data-chk="custom"></span>自定义(C)...</div>
+        <div class="mi" data-act="gensettings">生成设置(G)...</div>
+        <div class="sep"></div>
+        <div class="mi disabled" data-act="review" id="mi-review">反思(R)...</div>
+        <div class="mi disabled" data-act="steps" id="mi-steps">最小高级步数(S)...</div>
+      </div>
+    </div>
+    <div class="menu-title" data-menu="opt">选项(O)
+      <div class="dropdown" id="m-opt">
+        <div class="mi" data-act="question"><span class="chk" data-chk="question"></span>标记(?)</div>
+        <div class="mi" data-act="dbl"><span class="chk" data-chk="dbl"></span>单击插旗，双击打开</div>
+        <div class="mi" data-act="auto"><span class="chk" data-chk="auto"></span>自动标雷</div>
+      </div>
+    </div>
+    <div class="menu-title" data-menu="help">帮助(H)
+      <div class="dropdown" id="m-help">
+        <div class="mi" data-act="about">关于扫雷(A)...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sunken">
+    <div class="header">
+      <div class="lcd" id="mines">010</div>
+      <div class="face" id="face" title="新游戏"></div>
+      <div class="lcd" id="time">000</div>
+    </div>
+  </div>
+  <div class="sunken" style="margin:0 4px 4px; display:inline-block; padding:0;">
+    <div class="board" id="board"></div>
+  </div>
+  <div class="status" id="status"></div>
+  </div>
+  <div class="grip" id="grip" title="拖动以改变窗口大小"></div>
+</div>
+
+<div class="dlg-mask" id="dlg-custom">
+  <div class="dlg">
+    <h3>自定义雷区</h3>
+    <label>高度(H)（5–24）：<input id="cH" type="number" min="5" max="24" value="16"></label>
+    <label>宽度(W)（5–30）：<input id="cW" type="number" min="5" max="30" value="30"></label>
+    <label>雷数(M)（10–宽×高−9）：<input id="cM" type="number" min="10" value="99"></label>
+    <div class="hint" id="cHint"></div>
+    <div class="row"><button class="btn" id="cOk">确定</button><button class="btn" id="cCancel">取消</button></div>
+  </div>
+</div>
+<div class="dlg-mask" id="dlg-about">
+  <div class="dlg about">
+    <h3>关于扫雷</h3>
+    <p>仿 Windows 经典扫雷的网页版。</p>
+    <p>左键：翻开；右键：插旗 → 问号（可关） → 清除。</p>
+    <p>在“选项”里可开启“单击插旗，双击打开”。</p>
+    <div class="row"><button class="btn" id="aOk">确定</button></div>
+  </div>
+</div>
+<div class="dlg-mask" id="dlg-review">
+  <div class="dlg review">
+    <h3>反思 — 每步后各未开格是雷的概率</h3>
+    <div class="rnav">
+      <button class="btn" id="rFirst">⏮ 首步</button>
+      <button class="btn" id="rPrev">◀ 上一步</button>
+      <span class="rinfo" id="rInfo"></span>
+      <button class="btn" id="rNext">下一步 ▶</button>
+      <button class="btn" id="rLast">末步 ⏭</button>
+    </div>
+    <div class="sunken rwrap"><div class="rboard" id="rBoard"></div></div>
+    <div class="note-r">格内百分数为该格是雷的概率（按所有与已翻开数字一致、且恰有 M 颗雷的布局等权精确计算）。100% 标红，0% 为灰字。已开格显示周围雷数。</div>
+    <div class="row"><button class="btn" id="rClose">关闭</button></div>
+  </div>
+</div>
+<div class="dlg-mask" id="dlg-steps">
+  <div class="dlg">
+    <h3>最小高级步数</h3>
+    <div class="note-r" style="margin:0 0 8px 0">计数规则：首击不计入；自动标雷与数字和弦免费；之后每次点击未开格计 1 步（其空白级联计在同一步内）。只统计逻辑上确定安全的点击。</div>
+    <div id="sText" style="font-size:12px;line-height:1.7;min-height:48px;width:440px;text-align:left"></div>
+    <div class="row"><button class="btn" id="sStop">停止</button><button class="btn" id="sClose">关闭</button></div>
+  </div>
+</div>
+<div class="dlg-mask" id="dlg-gen">
+  <div class="dlg">
+    <h3>生成设置</h3>
+    <div style="font-size:12px;line-height:1.8;width:380px;text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span>生成尽量难的局面</span>
+        <input type="checkbox" id="gHard" style="margin:0 2px 0 0;width:14px;height:14px">
+      </div>
+      <div class="note-r" style="margin:2px 0 8px 0">开启后，首击时在时限内随机生成多个逻辑可解局面，用最小高级步数评分，保留最难的一局。</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span>最长搜索时间（秒，5–600）</span>
+        <input type="number" id="gSec" min="5" max="600" step="5" style="width:70px">
+      </div>
+    </div>
+    <div class="row"><button class="btn" id="gOk">确定</button><button class="btn" id="gCancel">取消</button></div>
+  </div>
+</div>
+<div class="dlg-mask" id="dlg-save">
+  <div class="dlg">
+    <h3>存档与导入</h3>
+    <div style="font-size:12px;width:460px;text-align:left">
+      <div style="font-weight:bold;margin-bottom:4px">浏览器槽位（未完成的局面）</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span id="lb0" style="flex:1">槽位 1：空</span><button class="btn" id="sv0">保存</button><button class="btn" id="ld0">载入</button><button class="btn" id="dl0">删除</button></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span id="lb1" style="flex:1">槽位 2：空</span><button class="btn" id="sv1">保存</button><button class="btn" id="ld1">载入</button><button class="btn" id="dl1">删除</button></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span id="lb2" style="flex:1">槽位 3：空</span><button class="btn" id="sv2">保存</button><button class="btn" id="ld2">载入</button><button class="btn" id="dl2">删除</button></div>
+      <div style="font-weight:bold;margin:6px 0 4px 0">文本 / 文件</div>
+      <textarea id="svText" spellcheck="false" style="width:450px;height:130px;font-family:monospace;font-size:11px;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center">
+        <button class="btn" id="svExport">导出为文本</button>
+        <button class="btn" id="svImport">从文本导入</button>
+        <button class="btn" id="svDownload">导出为文件</button>
+        <label class="btn" style="cursor:pointer">从文件导入<input type="file" id="svFile" accept=".json,application/json" style="display:none"></label>
+      </div>
+      <div class="note-r" id="svMsg" style="min-height:18px;margin-top:6px"></div>
+    </div>
+    <div class="row"><button class="btn" id="svClose">关闭</button></div>
+  </div>
+</div>
 <script>
-// ===== 难度参数 =====
-const DIFF = {
-  easy:   {W:9,  H:9,  M:10,  name:'初级'},
-  medium: {W:16, H:16, M:40,  name:'中级'},
-  hard:   {W:30, H:16, M:99,  name:'高级'}
-};
+// ===== 逻辑求解 / 精确概率 / 均匀抽样（经典扫雷：只有雷的总数 M 与翻开的数字） =====
+const TIMEOUT_ERR='TIMEOUT';
+let DEADLINE=Infinity, _nodes=0;
+function tick(){ if((++_nodes & 1023)===0 && Date.now()>DEADLINE) throw new Error(TIMEOUT_ERR); }
 
-// ===== 时限控制 =====
-let DEADLINE=Infinity;
-let _ops=0;
-const TIMEOUT={timeout:true};
-function setDeadline(t){ DEADLINE=t; }
-function checkDeadline(){ if(Date.now()>DEADLINE) throw TIMEOUT; }
+const _binMemo=new Map();
+// 组合数 C(n,k)，BigInt
+function binom(n,k){
+  if(n<0||k<0||k>n) return 0n;
+  if(k>n-k) k=n-k;
+  const key=n*1000+k;
+  const got=_binMemo.get(key);
+  if(got!==undefined) return got;
+  let r=1n;
+  for(let i=0;i<k;i++) r=r*BigInt(n-i)/BigInt(i+1);
+  _binMemo.set(key,r);
+  return r;
+}
 
-// ===== 基础棋盘 =====
 function buildNB(W,H){
   const NB=[];
-  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-    const r=[];
-    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-      if(!dx&&!dy)continue;
-      const nx=x+dx,ny=y+dy;
-      if(nx>=0&&ny>=0&&nx<W&&ny<H) r.push(ny*W+nx);
+  for(let i=0;i<W*H;i++){
+    const x=i%W, y=(i/W)|0, r=[];
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      if(!dx&&!dy) continue;
+      const nx=x+dx, ny=y+dy;
+      if(nx>=0&&nx<W&&ny>=0&&ny<H) r.push(ny*W+nx);
     }
     NB.push(r);
   }
   return NB;
 }
 
-function makeBoard(W,H,M,start,NB){
-  const N=W*H, excl=new Uint8Array(N);
-  excl[start]=1; for(const n of NB[start]) excl[n]=1;
-  const cand=[];
-  for(let i=0;i<N;i++) if(!excl[i]) cand.push(i);
-  for(let i=cand.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[cand[i],cand[j]]=[cand[j],cand[i]];}
-  const mine=new Uint8Array(N);
-  for(let k=0;k<M;k++) mine[cand[k]]=1;
-  const num=new Uint8Array(N);
-  for(let i=0;i<N;i++){let c=0; for(const n of NB[i]) c+=mine[n]; num[i]=c;}
-  return {W,H,N,M,mine,num,NB};
+// 数字：周围雷数
+function countAround(NB,truth,i){
+  let c=0; for(const n of NB[i]) c+=truth[n];
+  return c;
 }
 
-function reveal(b,rev,i){
-  if(rev[i]||b.mine[i]) return 0;
-  const st=[i]; let cnt=0;
-  while(st.length){
-    const c=st.pop();
-    if(rev[c]) continue;
-    rev[c]=1; cnt++;
-    if(b.num[c]===0) for(const n of b.NB[c]) if(!rev[n]&&!b.mine[n]) st.push(n);
+// 由已知信息构造约束：每个已翻开格 i 给出 “未开邻格中雷数 = num[i]”
+// 前沿 F：与已翻开格相邻的未开格（按约束 BFS 排序）；其余未开格为内部格，数量 I
+function buildCtx(W,H,NB,rev,num,M){
+  const T=W*H;
+  const cons=[], fIndex=new Int32Array(T).fill(-1), F=[];
+  for(let i=0;i<T;i++){
+    if(!rev[i]) continue;
+    const vars=[];
+    for(const n of NB[i]) if(!rev[n]){
+      if(fIndex[n]<0){ fIndex[n]=F.length; F.push(n); }
+      vars.push(fIndex[n]);
+    }
+    if(vars.length) cons.push({need:num[i], vars});
   }
-  return cnt;
-}
-
-// ===== 完整逻辑求解器 =====
-// 线性约束：已翻开的数字 = 周围雷数；全局约束：未翻开雷总数 = 剩余雷数。
-
-// 集合卷积：A 中每个可能雷数 a 与 B 中每个 b 相加（位掩码表示）
-function sumset(A,B){
-  let r=0n, a=0n, t=A;
-  while(t){
-    if(t&1n) r|=B<<a;
-    t>>=1n; a+=1n;
+  let unknown=0; for(let i=0;i<T;i++) if(!rev[i]) unknown++;
+  const nF=F.length;
+  const varCons=Array.from({length:nF},()=>[]);
+  cons.forEach((c,j)=>c.vars.forEach(v=>varCons[v].push(j)));
+  const vis=new Uint8Array(nF), ord=[];
+  for(let s=0;s<nF;s++){
+    if(vis[s]) continue;
+    vis[s]=1; const q=[s];
+    for(let h=0;h<q.length;h++){
+      const v=q[h]; ord.push(v);
+      for(const j of varCons[v]) for(const u of cons[j].vars) if(!vis[u]){ vis[u]=1; q.push(u); }
+    }
   }
-  return r;
+  const newPos=new Int32Array(nF); ord.forEach((v,p)=>newPos[v]=p);
+  const F2=ord.map(v=>F[v]);
+  for(const c of cons) c.vars=c.vars.map(v=>newPos[v]);
+  const vars2=ord.map(v=>varCons[v]);
+  const active=Array.from({length:nF},()=>[]);
+  cons.forEach((c,j)=>{
+    const mn=Math.min(...c.vars), mx=Math.max(...c.vars);
+    for(let p=mn+1;p<=mx;p++) active[p].push(j);
+  });
+  return {F:F2, cons, vars:vars2, active, M, I:unknown-nF};
 }
 
-// 连通块的前沿动态规划：返回该块所有可能雷数的位掩码
-// fp/fv：强制第 fp 个位置为 fv；fa：每个位置的固定值（-1 表示自由）
-function compMask(cp, fp, fv, fa){
-  const n=cp.order.length, nc=cp.cl.length;
-  const res=new Int32Array(nc), rem=new Int32Array(nc);
-  for(let k=0;k<nc;k++){ res[k]=cp.cl[k].need; rem[k]=cp.cl[k].ps.length; }
+// 存在性搜索（DFS）：是否存在布局满足全部约束、剩余雷数恰好放入 Iint 个内部格。
+// fp/fv：前沿格 fp 固定为 fv（fp<0 不限）。返回一组前沿赋值或 null。
+function exists(ctx,R0,Iint,fp,fv){
+  const nF=ctx.F.length, nC=ctx.cons.length;
+  const need=new Int32Array(nC), left=new Int32Array(nC);
+  for(let j=0;j<nC;j++){ need[j]=ctx.cons[j].need; left[j]=ctx.cons[j].vars.length; }
+  if(R0<0||Iint<0) return null;
+  let R=R0;
+  const asg=new Int8Array(nF);
+  const dfs=(p)=>{
+    tick();
+    if(R<0 || R>(nF-p)+Iint) return false;
+    if(p===nF) return R<=Iint;
+    const cl=ctx.vars[p];
+    for(let v=0;v<=1;v++){
+      if(fp===p && v!==fv) continue;
+      if(v && R===0) continue;
+      for(const j of cl){ left[j]--; need[j]-=v; }
+      R-=v;
+      let ok=true;
+      for(const j of cl){ if(need[j]<0 || need[j]>left[j]){ ok=false; break; } }
+      if(ok){ asg[p]=v; if(dfs(p+1)) return true; }
+      R+=v;
+      for(const j of cl){ left[j]++; need[j]+=v; }
+    }
+    return false;
+  };
+  return dfs(0) ? Array.from(asg) : null;
+}
+
+// 计数动态规划：统计满足约束的加权布局数（内部格权重 C(Iint, R)）
+function makeDP(ctx,R0,Iint,fp,fv){
+  const nF=ctx.F.length, nC=ctx.cons.length;
+  const need=new Int32Array(nC), left=new Int32Array(nC);
+  for(let j=0;j<nC;j++){ need[j]=ctx.cons[j].need; left[j]=ctx.cons[j].vars.length; }
+  let R=R0;
   const memo=new Map();
-  const f=p=>{
-    if(p===n) return 1n;
-    if((++_ops&255)===0) checkDeadline();
-    let key=p+':';
-    for(const k of cp.openAt[p]) key+=res[k]+',';
+  const canChoose=(p,v)=>{
+    if(fp===p && v!==fv) return false;
+    if(v && R===0) return false;
+    return true;
+  };
+  const apply=(p,v)=>{ for(const j of ctx.vars[p]){ left[j]--; need[j]-=v; } R-=v; };
+  const undo=(p,v)=>{ R+=v; for(const j of ctx.vars[p]){ left[j]++; need[j]+=v; } };
+  const okAt=(p)=>{ for(const j of ctx.vars[p]) if(need[j]<0||need[j]>left[j]) return false; return true; };
+  const child=(p,v)=>{
+    apply(p,v);
+    const r= okAt(p) ? dp(p+1) : 0n;
+    undo(p,v);
+    return r;
+  };
+  const dp=(p)=>{
+    tick();
+    if(R<0 || R>(nF-p)+Iint) return 0n;
+    if(p===nF) return binom(Iint,R);
+    let key=p+'|'+R;
+    for(const j of ctx.active[p]) key+='|'+need[j];
     const got=memo.get(key);
     if(got!==undefined) return got;
-    let total=0n;
-    const cl=cp.consOfPos[p];
-    for(let v=0;v<=1;v++){
-      if(p===fp && v!==fv) continue;
-      if(fa && fa[p]>=0 && v!==fa[p]) continue;
-      let ok=true;
-      for(const k of cl){ res[k]-=v; rem[k]--; if(res[k]<0||res[k]>rem[k]) ok=false; }
-      if(ok){ const sub=f(p+1); total |= (v? (sub<<1n) : sub); }
-      for(const k of cl){ res[k]+=v; rem[k]++; }
-    }
-    memo.set(key,total);
-    return total;
+    let tot=0n;
+    for(let v=0;v<=1;v++) if(canChoose(p,v)) tot+=child(p,v);
+    memo.set(key,tot);
+    return tot;
   };
-  return f(0);
-}
-
-// 预处理：约束、连通块、内部格。known 为已确定的雷（可为全 0）
-function buildProblem(b, rev, known){
-  checkDeadline();
-  const N=b.N, NB=b.NB;
-  let knownCnt=0, unknownCnt=0;
-  for(let i=0;i<N;i++){ if(known[i]) knownCnt++; else if(!rev[i]) unknownCnt++; }
-  const Mrem=b.M-knownCnt;
-
-  const cons=[];
-  const inCons=new Uint8Array(N);
-  const cellCons=new Array(N);
-  for(let i=0;i<N;i++){
-    if(!rev[i]||b.num[i]===0) continue;
-    const cells=[]; let need=b.num[i];
-    for(const n of NB[i]){
-      if(known[n]) need--;
-      else if(!rev[n]) cells.push(n);
-    }
-    if(cells.length){
-      const id=cons.length;
-      cons.push({cells,need,id});
-      for(const x of cells){ inCons[x]=1; (cellCons[x]||(cellCons[x]=[])).push(id); }
-    }
-  }
-
-  const par=new Int32Array(N); for(let i=0;i<N;i++) par[i]=i;
-  const find=x=>{ while(par[x]!==x){ par[x]=par[par[x]]; x=par[x]; } return x; };
-  for(const c of cons) for(let k=1;k<c.cells.length;k++){
-    const a=find(c.cells[0]), bb=find(c.cells[k]);
-    if(a!==bb) par[a]=bb;
-  }
-  const rootMap=new Map(), comps=[];
-  for(let x=0;x<N;x++) if(inCons[x]){
-    const r=find(x);
-    let cp=rootMap.get(r);
-    if(!cp){ cp={cells:[],cons:[]}; rootMap.set(r,cp); comps.push(cp); }
-    cp.cells.push(x);
-  }
-  for(const c of cons) rootMap.get(find(c.cells[0])).cons.push(c);
-
-  for(const cp of comps){
-    const order=[], seenCell=new Set([cp.cells[0]]), q=[cp.cells[0]], seenCons=new Set();
-    for(let qi=0;qi<q.length;qi++){
-      const x=q[qi]; order.push(x);
-      for(const ci of cellCons[x]) if(!seenCons.has(ci)){
-        seenCons.add(ci);
-        for(const y of cons[ci].cells) if(!seenCell.has(y)){ seenCell.add(y); q.push(y); }
+  // 按加权数随机抽取前沿布局（均匀于全部合法布局）
+  const sample=()=>{
+    const asg=new Array(nF);
+    for(let p=0;p<nF;p++){
+      const opts=[]; let sum=0;
+      for(let v=0;v<=1;v++){
+        if(!canChoose(p,v)) continue;
+        const w=child(p,v);
+        if(w>0n){ opts.push([v,w]); sum+=Number(w); }
       }
+      let r=Math.random()*sum, pick=opts[opts.length-1][0];
+      for(const [v,w] of opts){ r-=Number(w); if(r<0){ pick=v; break; } }
+      asg[p]=pick;
+      apply(p,pick);
     }
-    cp.order=order;
-    cp.posOf=new Map(order.map((x,p)=>[x,p]));
-    cp.cl=cp.cons.map(c=>({ps:c.cells.map(x=>cp.posOf.get(x)).sort((a,b)=>a-b), need:c.need}));
-    const n=order.length;
-    cp.consOfPos=Array.from({length:n},()=>[]);
-    cp.cl.forEach((c,k)=>c.ps.forEach(p=>cp.consOfPos[p].push(k)));
-    cp.openAt=Array.from({length:n+1},()=>[]);
-    cp.cl.forEach((c,k)=>{
-      const first=c.ps[0], last=c.ps[c.ps.length-1];
-      for(let p=first+1;p<=last;p++) cp.openAt[p].push(k);
-    });
-  }
-
-  const interiorCells=[];
-  for(let i=0;i<N;i++) if(!rev[i]&&!known[i]&&!inCons[i]) interiorCells.push(i);
-
-  const compOf=new Map();
-  comps.forEach((cp,ci)=>cp.cells.forEach(x=>compOf.set(x,ci)));
-  return {Mrem, comps, interiorCells, compOf};
+    return asg;
+  };
+  return {run:()=>dp(0), sample, R:()=>R};
 }
 
-// 对固定赋值（Map: 格子 -> 0/1）计算连通块掩码
-function compMaskFixed(cp, fixedVal){
-  const fa=new Int8Array(cp.order.length).fill(-1);
-  for(let p=0;p<cp.order.length;p++){
-    const v=fixedVal.get(cp.order[p]);
-    if(v!==undefined) fa[p]=v;
+// 逻辑推理：本轮可确定安全的未开格（全局一致，含总雷数）
+function deduceSafe(W,H,NB,rev,num,M,deadline){
+  DEADLINE=deadline;
+  const ctx=buildCtx(W,H,NB,rev,num,M);
+  const F=ctx.F, nF=F.length;
+  const possible=new Uint8Array(nF);
+  const safe=[];
+  for(let p=0;p<nF;p++){
+    if(possible[p]) continue;
+    const sol=exists(ctx,M,ctx.I,p,1);
+    if(sol){ for(let q=0;q<nF;q++) if(sol[q]) possible[q]=1; }
+    else safe.push(F[p]);
   }
-  return compMask(cp,-1,0,fa);
-}
-function allMasks(P,fixedVal){ return P.comps.map(cp=>compMaskFixed(cp,fixedVal)); }
-
-// 内部格（无约束）的雷数掩码：已固定的内部格计入，其余自由
-function intMaskOf(P,fixedVal){
-  let kf=0, nf=0;
-  for(const x of P.interiorCells){
-    const v=fixedVal.get(x);
-    if(v!==undefined){ nf++; kf+=v; }
+  if(safe.length) return safe;
+  // 内部格：全部等价，只需检查一个
+  if(ctx.I>0 && M>=1 && !exists(ctx,M-1,ctx.I-1,-1,0)){
+    const inF=new Uint8Array(W*H); for(const f of F) inF[f]=1;
+    const res=[]; for(let i=0;i<W*H;i++) if(!rev[i] && !inF[i]) res.push(i);
+    return res;
   }
-  const If=P.interiorCells.length-nf;
-  return ((1n<<BigInt(If+1))-1n)<<BigInt(kf);
-}
-
-// 是否存在满足全部约束、总雷数正确、且满足固定赋值的布局
-function feasibleWith(P,masks,fixedVal){
-  let t=intMaskOf(P,fixedVal);
-  for(const m of masks) t=sumset(t,m);
-  return ((t>>BigInt(P.Mrem))&1n)===1n;
+  return [];
 }
 
-// 完整逻辑推理：返回所有能被确定的安全格与雷格
-function fullDeduce(b, rev, known){
-  const P=buildProblem(b,rev,known);
-  const safe=[], mines=[];
-  if(P.Mrem<0) return {safe,mines};
-  const base=allMasks(P,new Map());
-
-  if(P.interiorCells.length>0){
-    const x0=P.interiorCells[0];
-    const canMine=feasibleWith(P,base,new Map([[x0,1]]));
-    const canSafe=feasibleWith(P,base,new Map([[x0,0]]));
-    if(!canMine) safe.push(...P.interiorCells);
-    else if(!canSafe) mines.push(...P.interiorCells);
-  }
-
-  P.comps.forEach((cp,ci)=>{
-    for(const x of cp.order){
-      const fm=new Map([[x,1]]), f0=new Map([[x,0]]);
-      const m1=base.slice(); m1[ci]=compMaskFixed(cp,fm);
-      const m0=base.slice(); m0[ci]=compMaskFixed(cp,f0);
-      const canMine=feasibleWith(P,m1,fm);
-      const canSafe=feasibleWith(P,m0,f0);
-      if(!canMine) safe.push(x);
-      else if(!canSafe) mines.push(x);
+// 生成用：从首击出发，只靠逻辑能否翻开全部安全格
+function simulateSolve(W,H,NB,truth,first,deadline){
+  const T=W*H, M=truth.reduce((a,b)=>a+b,0);
+  const rev=new Uint8Array(T), num=new Uint8Array(T);
+  let revCount=0;
+  const open=(i)=>{
+    if(rev[i]) return;
+    rev[i]=1; num[i]=countAround(NB,truth,i); revCount++;
+    if(num[i]!==0) return;
+    const q=[i];
+    for(let h=0;h<q.length;h++){
+      const c=q[h];
+      for(const n of NB[c]) if(!rev[n]){ rev[n]=1; num[n]=countAround(NB,truth,n); revCount++; if(num[n]===0) q.push(n); }
     }
-  });
-  return {safe,mines};
-}
-
-// 完整逻辑求解：反复推理直到无进展（确定结论只增不减，贪心即完备）
-function solve(b,rev0,record){
-  const rev=rev0.slice();
-  const known=new Uint8Array(b.N);
+  };
+  open(first);
   while(true){
-    const {safe,mines}=fullDeduce(b,rev,known);
-    if(record && !record.first && (safe.length||mines.length)) record.first={safe,mines};
-    if(safe.length===0 && mines.length===0) break;
-    for(const x of mines) known[x]=1;
-    for(const x of safe) reveal(b,rev,x);
-  }
-  let opened=0;
-  for(let i=0;i<b.N;i++) if(rev[i]) opened++;
-  return {solved: opened===b.N-b.M, rev, known};
-}
-
-// ===== 防猜测：判定与布局重构 =====
-
-// 玩家点击的格子在当前已翻开信息下是否一定安全（即“是雷”不可能成立）
-function isCertainlySafe(b,rev,c){
-  const P=buildProblem(b,rev,new Uint8Array(b.N));
-  if(P.Mrem<0) return false;
-  const fv=new Map([[c,1]]);
-  return !feasibleWith(P,allMasks(P,fv),fv);
-}
-
-// 构造一个合法布局：所有已翻开数字一致、总雷数为 M、且 mustMine 为雷
-// 随机化：格子顺序随机，每格的取值按“剩余雷密度”随机抽取，使雷的分布接近真实随机棋盘；
-// 每一步都保证仍存在满足全部约束的布局，因此结果始终合法。
-function findLayout(b,rev,mustMine){
-  const P=buildProblem(b,rev,new Uint8Array(b.N));
-  if(P.Mrem<0) return null;
-  const fixedVal=new Map([[mustMine,1]]);
-  let masks=allMasks(P,fixedVal);
-  if(!feasibleWith(P,masks,fixedVal)) return null;
-
-  const order=[];
-  for(const cp of P.comps) for(const x of cp.order) if(x!==mustMine) order.push(x);
-  for(const x of P.interiorCells) if(x!==mustMine) order.push(x);
-  for(let i=order.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [order[i],order[j]]=[order[j],order[i]];
-  }
-
-  let ones=1;
-  let left=order.length;
-  for(const x of order){
-    const ci=P.compOf.get(x);
-    // 尝试把 x 设为某个值，返回设置后的掩码（不可行则返回 null）
-    const test=v=>{
-      fixedVal.set(x,v);
-      let nm=masks;
-      if(ci!==undefined){ nm=masks.slice(); nm[ci]=compMaskFixed(P.comps[ci],fixedVal); }
-      const ok=feasibleWith(P,nm,fixedVal);
-      fixedVal.delete(x);
-      return ok? nm : null;
-    };
-    const remMines=P.Mrem-ones;
-    const pOne=left>0? Math.min(1,Math.max(0,remMines/left)) : 0;
-    const want= Math.random()<pOne ? 1 : 0;
-    let val=want, nm=test(want);
-    if(!nm){ val=1-want; nm=test(val); }
-    if(!nm) return null;                 // 理论上不会发生
-    fixedVal.set(x,val);
-    masks=nm;
-    if(val) ones++;
-    left--;
-  }
-  const layout=new Uint8Array(b.N);
-  for(const [x,v] of fixedVal) layout[x]=v;
-  return layout;
-}
-
-// ===== 棋盘生成 =====
-function generate(W,H,M,start,NB,maxTries=20000){
-  for(let t=1;t<=maxTries;t++){
-    const b=makeBoard(W,H,M,start,NB);
-    const rev=new Uint8Array(b.N);
-    reveal(b,rev,start);
-    if(solve(b,rev).solved) return {b,tries:t};
-  }
-  return null;
-}
-
-// 带时限的异步生成：每次尝试都可被截止时间中断，尝试之间让出线程
-async function generateAsync(W,H,M,start,NB,budgetMs,alive){
-  const end=Date.now()+budgetMs;
-  let t=0;
-  while(Date.now()<end && alive()){
-    t++;
-    setDeadline(end);
-    try{
-      const b=makeBoard(W,H,M,start,NB);
-      const rev=new Uint8Array(b.N);
-      reveal(b,rev,start);
-      if(solve(b,rev).solved){ setDeadline(Infinity); return {b,tries:t}; }
-    }catch(e){
-      if(e!==TIMEOUT){ setDeadline(Infinity); throw e; }
+    const safe=deduceSafe(W,H,NB,rev,num,M,deadline);
+    let any=false;
+    for(const s of safe){
+      if(rev[s]) continue;
+      if(truth[s]) throw new Error('逻辑错误：推出的安全格其实是雷');
+      open(s); any=true;
     }
-    setDeadline(Infinity);
+    if(!any) break;
+  }
+  return revCount===T-M;
+}
+
+// 随机布局：M 颗雷随机放在非首击格上
+function randomLayout(W,H,M,first){
+  const T=W*H;
+  const pool=[]; for(let i=0;i<T;i++) if(i!==first) pool.push(i);
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  const truth=new Uint8Array(T);
+  for(let k=0;k<M;k++) truth[pool[k]]=1;
+  return truth;
+}
+
+// 异步生成：反复随机布局直到从首击出发逻辑可解；单次尝试有时限；总预算超时返回 null
+const ATTEMPT_MS=2000;
+async function generateAsync(W,H,M,first,budgetMs){
+  const NB=buildNB(W,H);
+  const deadline=Date.now()+budgetMs;
+  let tries=0;
+  while(Date.now()<deadline){
+    tries++;
+    const truth=randomLayout(W,H,M,first);
+    const attemptDeadline=Math.min(deadline, Date.now()+ATTEMPT_MS);
+    let ok=false;
+    try{ ok=simulateSolve(W,H,NB,truth,first,attemptDeadline); }
+    catch(e){ if(e.message!==TIMEOUT_ERR) throw e; ok=false; }
+    if(ok) return {truth,NB,tries};
     await new Promise(r=>setTimeout(r,0));
   }
-  setDeadline(Infinity);
   return null;
 }
 
-// ===== 概率计算（反思功能）=====
-// 计数版连通块动态规划：返回数组 cnt[k] = 该块恰有 k 颗雷的布局数（BigInt）
-function compCount(cp, fixedVal){
-  const n=cp.order.length, nc=cp.cl.length;
-  const fa=new Int8Array(n).fill(-1);
-  for(let p=0;p<n;p++){ const v=fixedVal.get(cp.order[p]); if(v!==undefined) fa[p]=v; }
-  const res=new Int32Array(nc), rem=new Int32Array(nc);
-  for(let k=0;k<nc;k++){ res[k]=cp.cl[k].need; rem[k]=cp.cl[k].ps.length; }
-  const memo=new Map();
-  const f=p=>{
-    if(p===n) return [1n];
-    if((++_ops&255)===0) checkDeadline();
-    let key=p+':';
-    for(const k of cp.openAt[p]) key+=res[k]+',';
-    const got=memo.get(key);
-    if(got) return got;
-    const out=new Array(n-p+1).fill(0n);
-    const cl=cp.consOfPos[p];
-    for(let v=0;v<=1;v++){
-      if(fa[p]>=0 && v!==fa[p]) continue;
-      let ok=true;
-      for(const k of cl){ res[k]-=v; rem[k]--; if(res[k]<0||res[k]>rem[k]) ok=false; }
-      if(ok){ const sub=f(p+1); for(let k=0;k<sub.length;k++) out[k+v]+=sub[k]; }
-      for(const k of cl){ res[k]+=v; rem[k]++; }
+// 精确概率：每个未开格为雷的概率（Float64Array，已开格为 NaN）
+function cellProbs(W,H,NB,rev,num,M,deadline){
+  DEADLINE=deadline;
+  const T=W*H;
+  const ctx=buildCtx(W,H,NB,rev,num,M);
+  const total=makeDP(ctx,M,ctx.I,-1,0).run();
+  if(total===0n) return null;
+  const tot=Number(total);
+  const P=new Float64Array(T).fill(NaN);
+  for(let p=0;p<ctx.F.length;p++){
+    P[ctx.F[p]]=Number(makeDP(ctx,M,ctx.I,p,1).run())/tot;
+  }
+  if(ctx.I>0 && M>=1){
+    const pi=Number(makeDP(ctx,M-1,ctx.I-1,-1,0).run())/tot;
+    const inF=new Uint8Array(T); for(const f of ctx.F) inF[f]=1;
+    for(let i=0;i<T;i++) if(!rev[i] && !inF[i]) P[i]=pi;
+  }
+  return P;
+}
+
+// 逻辑安全判定（精确）：不存在与已知信息一致的布局使 i 为雷
+function isCertainlySafe(W,H,NB,rev,num,M,i,deadline){
+  DEADLINE=deadline;
+  const ctx=buildCtx(W,H,NB,rev,num,M);
+  const fi=ctx.F.indexOf(i);
+  if(fi>=0) return exists(ctx,M,ctx.I,fi,1)===null;
+  if(ctx.I<1 || M<1) return true;
+  return exists(ctx,M-1,ctx.I-1,-1,0)===null;
+}
+
+function placeRandom(R,cells,truth){
+  const idx=cells.slice();
+  for(let k=idx.length-1;k>0;k--){ const j=Math.floor(Math.random()*(k+1)); [idx[k],idx[j]]=[idx[j],idx[k]]; }
+  for(let k=0;k<R;k++) truth[idx[k]]=1;
+}
+
+// 在所有与已知信息一致的布局中，均匀抽取一个使格子 i 为雷的布局
+function sampleLayoutWithMine(W,H,NB,rev,num,M,i,deadline){
+  DEADLINE=deadline;
+  const T=W*H;
+  const ctx=buildCtx(W,H,NB,rev,num,M);
+  const fi=ctx.F.indexOf(i);
+  const truth=new Uint8Array(T);
+  const inF=new Uint8Array(T); for(const f of ctx.F) inF[f]=1;
+  const interior=[]; for(let k=0;k<T;k++) if(!rev[k] && !inF[k]) interior.push(k);
+  let dp;
+  if(fi>=0){
+    dp=makeDP(ctx,M,ctx.I,fi,1);
+    if(dp.run()===0n) return null;
+    const asg=dp.sample();
+    for(let p=0;p<ctx.F.length;p++) truth[ctx.F[p]]=asg[p];
+    placeRandom(dp.R(), interior, truth);
+  } else {
+    if(ctx.I<1 || M<1) return null;
+    dp=makeDP(ctx,M-1,ctx.I-1,-1,0);
+    if(dp.run()===0n) return null;
+    const asg=dp.sample();
+    for(let p=0;p<ctx.F.length;p++) truth[ctx.F[p]]=asg[p];
+    truth[i]=1;
+    placeRandom(dp.R(), interior.filter(k=>k!==i), truth);
+  }
+  return truth;
+}
+
+// ===================== 最小高级步数（搜索） =====================
+// 计数规则：首击不计入；自动标雷、数字和弦为免费操作；之后每次“点击未开格”计 1 步（其空白级联在同一步内完成）。
+// 只允许逻辑上确定安全的点击（否则在防猜测下判雷），因此搜索的每一步都是合法的。
+//
+// 两种搜索，共用同一个规则引擎 makeEngine：
+//  - makeStepSearch：精确的深度优先搜索（带记忆化与剪枝）。complete=true 时结果为精确最优。
+//  - makeAnnealSearch：随机退火搜索（启发式）。在“点击序列”上做局部修改（从某一步起换一个点击，其后随机补全），
+//    按 Metropolis 准则接受更差的解，温度按几何方式从 T0 降到 T1。从不声称最优（complete 恒为 false）。
+// 两者都支持分时执行 advance(ms)，并返回 {complete, done, steps, path, nodes}。
+//   steps：不计首击的高级步数（None 表示尚未找到完整解）；done：搜索已经结束（精确搜索穷尽，或退火达到时间预算）。
+
+// 规则引擎：泛洪（与游戏一致）、免费推理闭包、候选点（逻辑确定安全的未开格）
+function makeEngine(W,H,NB,truth,M){
+  const T=W*H, ALL=T-M;
+  const num=new Uint8Array(T);
+  for(let i=0;i<T;i++) num[i]=countAround(NB,truth,i);
+  const countRev=rev=>{ let c=0; for(let i=0;i<T;i++) c+=rev[i]; return c; };
+
+  // 点击 i，若为 0 则向外级联；只会翻开真实的非雷格
+  function flood(rev,i){
+    const q=[i]; rev[i]=1;
+    for(let h=0;h<q.length;h++){
+      const c=q[h];
+      if(num[c]!==0) continue;
+      for(const n of NB[c]) if(!rev[n] && !truth[n]){ rev[n]=1; q.push(n); }
     }
-    memo.set(key,out);
+  }
+
+  // 免费推理闭包（与游戏的自动标雷、数字和弦一致）：
+  // 自动标雷：已开数字的未开邻格数等于它时，这些格全部为雷；数字和弦：已标雷数等于数字时，翻开其余未开邻格。
+  function closure(rev){
+    for(;;){
+      const cm=new Uint8Array(T);
+      for(let i=0;i<T;i++){
+        if(!rev[i] || num[i]===0) continue;
+        let hid=0; for(const n of NB[i]) if(!rev[n]) hid++;
+        if(hid===num[i]) for(const n of NB[i]) if(!rev[n]) cm[n]=1;
+      }
+      let changed=false;
+      for(let i=0;i<T;i++){
+        if(!rev[i] || num[i]===0) continue;
+        let f=0; for(const n of NB[i]) f+=cm[n];
+        if(f!==num[i]) continue;
+        for(const n of NB[i]) if(!rev[n] && !cm[n]){ flood(rev,n); changed=true; }
+      }
+      if(!changed) break;
+    }
+  }
+
+  // 候选点：未开且逻辑上确定安全（不存在与已知信息一致的布局使其为雷）。
+  // 用存在性判定逐个前沿格检查（比计算全部概率快），内部格整体判定（它们等价）。
+  function cands(rev){
+    DEADLINE=Infinity;
+    const ctx=buildCtx(W,H,NB,rev,num,M);
+    const out=[];
+    const inF=new Uint8Array(T);
+    for(let fi=0; fi<ctx.F.length; fi++){
+      inF[ctx.F[fi]]=1;
+      if(exists(ctx,M,ctx.I,fi,1)===null) out.push(ctx.F[fi]);
+    }
+    if(ctx.I>0 && M>=1 && exists(ctx,M-1,ctx.I-1,-1,0)===null){
+      for(let i=0;i<T;i++) if(!rev[i] && !inF[i]) out.push(i);
+    }
     return out;
-  };
-  return f(0);
-}
-
-// 卷积（只保留前 cap+1 项，只需要总雷数 <= cap 的部分）
-function convBig(A,B,cap){
-  const len=Math.min(A.length+B.length-1, cap+1);
-  const r=new Array(len).fill(0n);
-  for(let i=0;i<A.length && i<len;i++){
-    const a=A[i]; if(a===0n) continue;
-    for(let j=0;j<B.length && i+j<len;j++) r[i+j]+=a*B[j];
   }
-  return r;
+
+  // 点击 i 能新增翻开的格数（用于排序 / 贪心）
+  function gain(rev,i){
+    const tmp=rev.slice(); const before=countRev(tmp);
+    flood(tmp,i);
+    return countRev(tmp)-before;
+  }
+
+  return {T, ALL, num, countRev, flood, closure, cands, gain};
 }
 
-// 内部格（无约束）恰有 t 颗雷的方式数 C(I,t)
-function binomRow(I){
-  const r=new Array(I+1); let c=1n;
-  for(let t=0;t<=I;t++){ r[t]=c; c=c*BigInt(I-t)/BigInt(t+1); }
-  return r;
-}
+// ---------- 精确搜索：深度优先 + 记忆化 ----------
+function makeStepSearch(W,H,NB,truth,first,M){
+  const E=makeEngine(W,H,NB,truth,M), T=E.T, ALL=E.ALL;
+  let best=Infinity, bestPath=null, nodes=0, exhausted=false, started=false;
+  const memo=new Map();
+  const stack=[];
 
-// 对当前已翻开局面，计算每个与已翻开数字相邻的未翻开格是雷的精确概率。
-// 概率 = 所有与已翻开信息一致的布局中，该格为雷的布局占比（每种布局等权）。
-// 返回 Map：格子编号 -> 概率（0~1）
-function frontierProbabilities(b, rev){
-  const P=buildProblem(b,rev,new Uint8Array(b.N));
-  const out=new Map();
-  if(P.Mrem<0) return out;
-  const cap=P.Mrem;
-  const comps=P.comps, K=comps.length;
-  const base=comps.map(cp=>compCount(cp,new Map()));
-  const intArr=binomRow(P.interiorCells.length);
-  // pre[k] = 内部格与前 k 个块的卷积；suf[k] = 第 k 个及之后各块的卷积
-  const pre=new Array(K+1); pre[0]=intArr.slice(0,cap+1);
-  for(let k=0;k<K;k++) pre[k+1]=convBig(pre[k],base[k],cap);
-  const suf=new Array(K+1); suf[K]=[1n];
-  for(let k=K-1;k>=0;k--) suf[k]=convBig(base[k],suf[k+1],cap);
-  const coef=(arr,m)=> (m>=0 && m<arr.length)? arr[m]:0n;
-  const total=coef(pre[K],cap);
-  if(total===0n) return out;
-  for(let ci=0;ci<K;ci++){
-    const L=convBig(pre[ci],suf[ci+1],cap);   // 除块 ci 外所有部分的卷积
-    for(const x of comps[ci].order){
-      const arr1=compCount(comps[ci], new Map([[x,1]]));
-      let t1=0n;
-      for(let k=0;k<arr1.length;k++) t1+=arr1[k]*coef(L,cap-k);
-      const scaled=(t1*1000000n)/total;
-      out.set(x, Number(scaled)/1e6);
+  // 生成搜索节点：若已全部翻开则记录最优；否则列出候选点击，按翻开数量降序
+  function makeFrame(rev,depth,path){
+    if(E.countRev(rev)===ALL){
+      if(depth<best){ best=depth; bestPath=path; }
+      return null;
     }
+    if(depth+1>=best) return null;
+    const key=String.fromCharCode.apply(null,rev);
+    const prev=memo.get(key);
+    if(prev!==undefined && prev<=depth) return null;
+    memo.set(key,depth);
+    nodes++;
+    const cs=E.cands(rev).map(i=>({i, g:E.gain(rev,i)}));
+    cs.sort((a,b)=>b.g-a.g);
+    return {rev,depth,path,cands:cs,idx:0};
   }
-  // 内部格（不与任何已翻开数字相邻）：每格概率相同 = 内部期望雷数 / I
-  const I=P.interiorCells.length;
-  if(I>0){
-    let num=0n;   // sum_t t * C(I,t) * S[cap-t]
-    for(let t=0;t<=Math.min(I,cap);t++) num+=BigInt(t)*intArr[t]*coef(suf[0],cap-t);
-    const den=BigInt(I)*total;
-    let pv;
-    if(num===0n) pv=0;
-    else if(num===den) pv=1;
-    else pv=Number(num*1000000n/den)/1e6;
-    for(const x of P.interiorCells) out.set(x,pv);
-  }
-  return out;
-}
-
-if(typeof document!=='undefined'){
-  const boardEl=document.getElementById('board');
-  const info=document.getElementById('info');
-  const sel=document.getElementById('diff');
-  const leftEl=document.getElementById('left');
-  const timeEl=document.getElementById('time');
-  const autoEl=document.getElementById('auto');
-  const strictEl=document.getElementById('strict');
-  const custEl=document.getElementById('cust');
-  const cwEl=document.getElementById('cw'), chEl=document.getElementById('ch'), cmEl=document.getElementById('cm'), cmaxEl=document.getElementById('cmax');
-  const GEN_BUDGET=15000;
-  const reviewBtn=document.getElementById('review');
-  const rPanel=document.getElementById('reviewPanel');
-  const rBoard=document.getElementById('reviewBoard');
-  const rInfo=document.getElementById('rInfo');
-  let history=[], rCache=[], rStep=0;
-
-  let cfg, NB, b=null, rev=null, flag=null, over=false, hintCell=-1, boomCell=-1;
-  let startT=0, timer=null, gid=0, genBusy=false;
-
-  const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,Math.floor(Number(v)||lo)));
-
-  // 读取当前难度参数；自定义模式下做范围校验
-  function readConfig(){
-    if(sel.value!=='custom') return {...DIFF[sel.value]};
-    const W=clamp(cwEl.value,5,50), H=clamp(chEl.value,5,50);
-    const maxM=W*H-9;
-    const M=clamp(cmEl.value,1,maxM);
-    cwEl.value=W; chEl.value=H; cmEl.value=M;
-    cmaxEl.textContent=`（雷数 1–${maxM}）`;
-    return {W,H,M,name:'自定义'};
-  }
-
-  // 格子大小随可用宽度自动缩小，保证棋盘在窄屏/嵌入页面中完整显示
-  const wrapEl=boardEl.parentElement||boardEl;
-  function layoutBoard(){
-    const avail=wrapEl.clientWidth||900;
-    const cs=Math.max(12,Math.min(28,Math.floor((avail-20)/cfg.W)-2));
-    boardEl.style.setProperty('--cs', cs+'px');
-    boardEl.style.gridTemplateColumns=`repeat(${cfg.W},${cs}px)`;
-  }
-  window.addEventListener('resize',()=>{ if(cfg) layoutBoard(); });
 
   function init(){
-    gid++; genBusy=false;
-    custEl.style.display = sel.value==='custom' ? '' : 'none';
-    cfg=readConfig();
-    NB=buildNB(cfg.W,cfg.H);
-    b=null; rev=null; over=false; hintCell=-1; boomCell=-1;
-    history=[]; rCache=[]; reviewBtn.style.display='none'; rPanel.style.display='none';
-    flag=new Uint8Array(cfg.W*cfg.H);
-    stopTimer(); timeEl.textContent='0';
-    layoutBoard();
-    boardEl.innerHTML='';
-    for(let i=0;i<cfg.W*cfg.H;i++){
-      const d=document.createElement('div');
-      d.className='c'; d.dataset.i=i;
-      boardEl.appendChild(d);
+    const rev=new Uint8Array(T);
+    E.flood(rev,first);
+    E.closure(rev);
+    const root=makeFrame(rev,1,[first]);
+    if(root) stack.push(root);
+  }
+
+  // 分时推进：最多运行 ms 毫秒，返回当前状态
+  function advance(ms){
+    if(!started){ started=true; init(); }
+    const end=Date.now()+ms;
+    while(stack.length && Date.now()<end){
+      const f=stack[stack.length-1];
+      if(f.idx>=f.cands.length){ stack.pop(); continue; }
+      const c=f.cands[f.idx++].i;
+      if(f.depth+1>=best) continue;
+      const rev=f.rev.slice();
+      E.flood(rev,c);
+      E.closure(rev);
+      const child=makeFrame(rev,f.depth+1,f.path.concat([c]));
+      if(child) stack.push(child);
     }
-    info.textContent=`${cfg.W}×${cfg.H}，${cfg.M} 雷。首次点击任意格子开始（生成限时 15 秒）。`;
-    render();
+    if(!stack.length) exhausted=true;
+    return status();
   }
 
-  function startTimer(){
-    startT=Date.now();
-    stopTimer();
-    timer=setInterval(()=>{timeEl.textContent=Math.floor((Date.now()-startT)/1000);},250);
-  }
-  function stopTimer(){ if(timer){clearInterval(timer);timer=null;} }
-
-  function render(){
-    const kids=boardEl.children;
-    let f=0; for(let i=0;i<flag.length;i++) if(flag[i]) f++;
-    leftEl.textContent = cfg.M - f;
-    for(let i=0;i<kids.length;i++){
-      const d=kids[i];
-      let cls='c', txt='';
-      if(rev && rev[i]){
-        cls+=' o';
-        if(b.num[i]>0){ txt=b.num[i]; cls+=' n'+b.num[i]; }
-      } else if(over && b && b.mine[i] && !flag[i]){
-        txt='💣'; if(i===boomCell) cls+=' boom';
-      } else if(over && flag[i] && (!b || !b.mine[i])){
-        txt='❌'; cls+=' wf';
-      } else if(flag[i]){
-        txt='🚩';
-        if(over) cls+=' o';
-      }
-      if(i===hintCell) cls+=' hint';
-      d.className=cls;
-      d.textContent=txt;
-    }
+  function status(){
+    // best 包含首击；对外报告的高级步数不计首击，因此 = best − 1（只有首击即完成时为 0）
+    return { complete: exhausted, done: exhausted, steps: best===Infinity ? null : best-1, path: bestPath, nodes };
   }
 
-  // 异步生成，界面显示进度，超过 15 秒则放弃
-  async function startGen(i, my){
-    const t0=Date.now();
-    let tick=setInterval(()=>{
-      if(my!==gid) return;
-      info.textContent=`生成中… 已用 ${((Date.now()-t0)/1000).toFixed(1)} 秒 / 15 秒`;
-    },200);
-    let g=null, err=null;
-    try{
-      g=await generateAsync(cfg.W,cfg.H,cfg.M,i,NB,GEN_BUDGET,()=>my===gid);
-    }catch(e){ err=e; }
-    clearInterval(tick);
-    if(my!==gid) return;
-    genBusy=false;
-    if(err){ info.textContent='生成出错：'+err.message; return; }
-    if(!g){
-      info.textContent='15 秒内未能生成可纯逻辑解出的该规模棋盘，已放弃。可减少雷数或换个位置再点一次。';
-      render(); return;
-    }
-    b=g.b;
-    rev=new Uint8Array(b.N);
-    reveal(b,rev,i);
-    snap('首次点击 '+pos(i));
-    autoFlag();
-    info.textContent=`棋盘已生成（尝试 ${g.tries} 次，用时 ${((Date.now()-t0)/1000).toFixed(1)} 秒，已用完整逻辑确认无需猜测）`;
-    startTimer();
-    check();          // 首击可能直接开完所有安全格，需要立即判定胜利
-    render();
-  }
-
-  // 判定玩家点的格子是否安全
-  // 防猜测开启：只要“是雷”在当前已翻开信息下可能成立，就判为雷（即该格不是逻辑上确定安全）
-  // 防猜测关闭：按真实布雷判定
-  function judgeSafe(i){
-    if(!strictEl.checked) return !b.mine[i];
-    return isCertainlySafe(b,rev,i);
-  }
-
-  function onLeft(i){
-    if(over) return;
-    if(!b){
-      if(genBusy) return;
-      genBusy=true;
-      startGen(i, gid);
-      return;
-    }
-    if(rev[i]){ chord(i); return; }
-    if(flag[i]) return;
-    if(!judgeSafe(i)){ lose(i); return; }
-    reveal(b,rev,i);
-    snap('翻开 '+pos(i));
-    hintCell=-1;
-    check(); render();
-  }
-
-  function chord(i){
-    if(b.num[i]===0) return;
-    let f=0; for(const n of b.NB[i]) if(flag[n]) f++;
-    if(f!==b.num[i]) return;
-    for(const n of b.NB[i]){
-      if(rev[n]||flag[n]) continue;
-      if(!judgeSafe(n)){ lose(n); return; }
-      reveal(b,rev,n);
-    }
-    snap('快速展开 '+pos(i));
-    hintCell=-1;
-    check(); render();
-  }
-
-  function onRight(i){
-    if(over||!b||rev[i]) return;
-    flag[i]=flag[i]?0:1;
-    hintCell=-1;
-    render();
-  }
-
-  // 自动标雷规则：已翻开的数字格，若周围未翻开的格子数 == 数字，则把这些格子全部标雷；其他情况不标
-  function autoFlag(){
-    if(!autoEl.checked || !b || over) return;
-    for(let i=0;i<b.N;i++){
-      if(!rev[i] || b.num[i]===0) continue;
-      const unopened=b.NB[i].filter(n=>!rev[n]);
-      if(unopened.length===b.num[i]){
-        for(const n of unopened) flag[n]=1;
-      }
-    }
-  }
-
-  function check(){
-    autoFlag();
-    let opened=0; for(let i=0;i<b.N;i++) if(rev[i]) opened++;
-    if(opened===b.N-b.M){
-      over=true; stopTimer(); reviewBtn.style.display='';
-      for(let i=0;i<b.N;i++) if(b.mine[i]) flag[i]=1;
-      info.textContent=`🎉 胜利！用时 ${Math.floor((Date.now()-startT)/1000)} 秒`;
-      render();
-    }
-  }
-
-  function lose(i){
-    snap('判为雷 '+pos(i));
-    reviewBtn.style.display='';
-    const guess = !b.mine[i];
-    if(guess && strictEl.checked){
-      // 防猜测判成雷：重构一个合法布局（所有已翻开数字不变、总雷数不变，且该格为雷）
-      const lay=findLayout(b,rev,i);
-      if(lay){
-        b.mine=lay;
-        for(let k=0;k<b.N;k++){ let c=0; for(const n of b.NB[k]) c+=lay[n]; b.num[k]=c; }
-      }
-    }
-    over=true; boomCell=i; stopTimer();
-    info.textContent = guess && strictEl.checked
-      ? '💥 这一步是猜测（该格并非逻辑上确定安全），判为雷！'
-      : '💥 踩雷了！点“新游戏”再来一局';
-    render();
-  }
-
-  function pos(i){ return `第${Math.floor(i/cfg.W)+1}行第${i%cfg.W+1}列`; }
-  function snap(label){ history.push({rev:rev.slice(), label}); }
-
-  // ===== 反思面板 =====
-  function openReview(){
-    if(!history.length) return;
-    rPanel.style.display='';
-    rStep=history.length-1;
-    renderReview();
-    rPanel.scrollIntoView({behavior:'smooth', block:'start'});
-  }
-  function renderReview(){
-    const h=history[rStep]; if(!h) return;
-    rInfo.textContent=`第 ${rStep+1} / ${history.length} 步：${h.label}`;
-    if(!rCache[rStep]){
-      rBoard.innerHTML='';
-      rInfo.textContent+='（计算中…）';
-      const idx=rStep;
-      setTimeout(()=>{
-        if(!rCache[idx]) rCache[idx]=frontierProbabilities(b,history[idx].rev);
-        if(rStep===idx) renderReview();
-      },10);
-      return;
-    }
-    const probs=rCache[rStep];
-    const avail=(rBoard.parentElement||rBoard).clientWidth||900;
-    const cs=Math.max(12,Math.min(28,Math.floor((avail-20)/cfg.W)-2));
-    rBoard.style.setProperty('--cs', cs+'px');
-    rBoard.style.gridTemplateColumns=`repeat(${cfg.W},${cs}px)`;
-    rBoard.innerHTML='';
-    for(let i=0;i<b.N;i++){
-      const d=document.createElement('div');
-      let cls='c', txt='', css='';
-      if(h.rev[i]){
-        cls+=' o';
-        if(b.num[i]>0){ txt=b.num[i]; cls+=' n'+b.num[i]; }
-      } else if(probs.has(i)){
-        const p=probs.get(i);
-        // 前沿格总是标概率；非前沿格只标 100% 或 0%
-        const frontier=NB[i].some(n=>h.rev[n] && b.num[n]>0);
-        if(frontier || p===0 || p===1){
-          if(p===1){
-            css=`background:#b91c1c;color:#fff;font-weight:bold;`;
-            txt='100%';
-          } else if(p===0){
-            css=`background:#15803d;color:#fff;font-weight:bold;`;
-            txt='0%';
-          } else {
-            css=`background:hsl(${Math.round(120*(1-p))},70%,45%);color:#fff;`;
-            // 非确定的格子：避免四舍五入把 99.9999% 显示成 100%
-            let pct=Math.round(p*100);
-            if(pct>=100) pct=99; else if(pct<=0) pct=1;
-            txt=pct+'%';
-          }
-          if(cs>=20) css+=`font-size:${Math.round(cs*0.36)}px;`;
-          else txt='';
-        }
-      }
-      d.className=cls; d.textContent=txt;
-      if(css) d.style.cssText=css;
-      rBoard.appendChild(d);
-    }
-    if(!probs.size) rInfo.textContent+='　棋盘已全部翻开';
-  }
-  reviewBtn.onclick=openReview;
-  document.getElementById('rPrev').onclick=()=>{ rStep=Math.max(0,rStep-1); renderReview(); };
-  document.getElementById('rNext').onclick=()=>{ rStep=Math.min(history.length-1,rStep+1); renderReview(); };
-  document.getElementById('rFirst').onclick=()=>{ rStep=0; renderReview(); };
-  document.getElementById('rLast').onclick=()=>{ rStep=history.length-1; renderReview(); };
-  document.getElementById('rClose').onclick=()=>{ rPanel.style.display='none'; };
-
-  function hint(){
-    if(!b||over){ info.textContent='请先开始游戏'; return; }
-    const rec={};
-    solve(b,rev,rec);
-    if(!rec.first){
-      info.textContent='当前局面用完整逻辑也推不出新的确定格，请再仔细检查数字和已插的旗。';
-      hintCell=-1; render(); return;
-    }
-    if(rec.first.safe.length){
-      hintCell=rec.first.safe[0];
-      info.textContent='提示：黄框格子一定安全，可以翻开。';
-    } else {
-      hintCell=rec.first.mines[0];
-      info.textContent='提示：黄框格子一定是雷，可以插旗。';
-    }
-    render();
-  }
-
-  boardEl.addEventListener('click',e=>{
-    const t=e.target.closest('.c'); if(!t) return;
-    onLeft(+t.dataset.i);
-  });
-  boardEl.addEventListener('contextmenu',e=>{
-    e.preventDefault();
-    const t=e.target.closest('.c'); if(!t) return;
-    onRight(+t.dataset.i);
-  });
-  document.getElementById('reset').onclick=init;
-  document.getElementById('hint').onclick=hint;
-  sel.onchange=init;
-  [cwEl,chEl,cmEl].forEach(el=>el.onchange=init);
-  autoEl.onchange=()=>{ autoFlag(); render(); };
-  init();
+  return { advance, status };
 }
 
+// ---------- 随机退火搜索 ----------
+// opts: T0（初始温度）、T1（终止温度）、eps（回放时随机选点的概率）、budgetMs（退火总时长，决定温度进度）
+function makeAnnealSearch(W,H,NB,truth,first,M,opts){
+  opts=opts||{};
+  const E=makeEngine(W,H,NB,truth,M), ALL=E.ALL;
+  const T0=opts.T0!==undefined?opts.T0:0.6;
+  const T1=opts.T1!==undefined?opts.T1:0.05;
+  const eps=opts.eps!==undefined?opts.eps:0.2;
+  const budget=opts.budgetMs||30000;
+
+  let seq=null, states=null;      // states[i] = {rev, C}：点击 seq[0..i] 之后（含免费闭包）的状态；C 为候选点
+  let best=null, bestLen=Infinity, bestMs=0;
+  let moves=0, accepted=0, started=false, t0=0, finished=false;
+
+  // 回放时的选点策略：以概率 eps 随机，否则选翻开格数最多的（并列随机）
+  function pick(list, rev){
+    if(Math.random()<eps) return list[(Math.random()*list.length)|0];
+    let bg=-1, pool=[];
+    for(const c of list){
+      const g=E.gain(rev,c);
+      if(g>bg){ bg=g; pool=[c]; } else if(g===bg) pool.push(c);
+    }
+    return pool[(Math.random()*pool.length)|0];
+  }
+
+  // 从已有前缀（seqP, statesP）出发，随机补全到胜利；返回完整序列与状态；遇到死局返回 null
+  function complete(seqP, statesP){
+    const sq=seqP.slice(), sts=statesP.slice();
+    let last=sts[sts.length-1];
+    while(E.countRev(last.rev)<ALL){
+      const list=last.C;
+      if(!list.length) return null;
+      const c=pick(list,last.rev);
+      const rev=last.rev.slice(); E.flood(rev,c);
+      E.closure(rev);
+      last={rev, C:E.cands(rev)};
+      sq.push(c); sts.push(last);
+    }
+    return {seq:sq, states:sts};
+  }
+
+  function temperature(){
+    const f=Math.min(1,(Date.now()-t0)/budget);
+    return T0*Math.pow(T1/T0, f);
+  }
+
+  // 一次邻域移动：在随机决策点 k 换一个点击（逻辑安全的其他候选），其后随机补全
+  function move(){
+    const L=seq.length;
+    if(L<2) return;
+    const k=(Math.random()*(L-1))|0;               // 决策点：状态 states[k] 上选择 seq[k+1]
+    const sk=states[k];
+    const alts=sk.C.filter(c=>c!==seq[k+1]);
+    if(!alts.length) return;
+    const c=alts[(Math.random()*alts.length)|0];
+    const rev=sk.rev.slice(); E.flood(rev,c);
+    E.closure(rev);
+    const res=complete(seq.slice(0,k+1).concat([c]), states.slice(0,k+1).concat([{rev, C:E.cands(rev)}]));
+    moves++;
+    if(!res) return;
+    const dE=res.seq.length-seq.length;
+    if(res.seq.length<bestLen){ bestLen=res.seq.length; best=res.seq.slice(); bestMs=Date.now()-t0; }
+    if(dE<=0 || Math.random()<Math.exp(-dE/temperature())){
+      seq=res.seq; states=res.states; accepted++;
+    }
+  }
+
+  function init(){
+    t0=Date.now();
+    const rev=new Uint8Array(E.T); E.flood(rev,first);
+    E.closure(rev);
+    const res=complete([first],[{rev, C:E.cands(rev)}]);
+    if(!res){ finished=true; return; }
+    seq=res.seq; states=res.states;
+    best=seq.slice(); bestLen=seq.length; bestMs=0;
+  }
+
+  function advance(ms){
+    if(!started){ started=true; init(); }
+    const end=Date.now()+ms;
+    while(!finished && Date.now()<end){
+      if(Date.now()-t0>=budget){ finished=true; break; }
+      move();
+    }
+    return status();
+  }
+
+  function status(){
+    return {
+      complete: false,                       // 启发式：从不声称最优
+      done: finished,
+      steps: best ? bestLen-1 : null,
+      path: best,
+      nodes: moves,
+      accepted,
+      bestMs
+    };
+  }
+
+  return { advance, status };
+}
+
+// ===================== 界面与游戏流程 =====================
+// 规则：首击后异步生成“逻辑可解”布局（首击必安全）；
+// 翻开任何未开格前做防猜测判定：若逻辑上不能确定安全，则判雷，并在与已知信息一致的布局中重抽（使该格为雷）；
+// 数字和弦（单击已开数字、旗数等于数字）逐格经过同样判定；
+// 结束后可在“反思”中逐步查看每一步各未开格为雷的概率。
+
+const LEVELS={
+  easy:{W:9,H:9,M:10,name:'初级'},
+  medium:{W:16,H:16,M:40,name:'中级'},
+  hard:{W:30,H:16,M:99,name:'高级'},
+  custom:{W:16,H:16,M:40,name:'自定义'}
+};
+const ST_HIDDEN=0, ST_OPEN=1, ST_FLAG=2, ST_Q=3;
+const GEN_BUDGET_MS=15000;   // 生成逻辑可解布局的总时限
+const SOLVE_BUDGET_MS=8000;  // 单次逻辑判定 / 重抽 / 概率计算的时限
+
+let level='easy', W=9, H=9, M=10;
+let mine=new Uint8Array(81), adj=new Uint8Array(81), st=new Uint8Array(81), NB=[];
+let placed=false, revealedCount=0, flagCount=0, lastRev=0;
+let gameState='ready';            // ready | gen | play | won | lost
+let exploded=-1, timerId=null, secs=0;
+let questionOn=true, dblMode=false;
+let faceState='normal';           // normal | ooh | dead | win
+let notice='';
+let steps=[], stepIdx=0;          // 反思：每步快照
+let autoMark=false;               // 自动标雷
+let firstCell=-1;                 // 本局首击位置（用于最小高级步数）
+let stepSearch=null, stepStart=0, stepTimer=null;   // 最小高级步数搜索
+const STEP_BUDGET_S=30;
+let hardGen=false;                // 生成尽量难的局面
+let HARD_GEN_MS=30000;            // 最长搜索时间（毫秒），由“生成设置”设定
+let genMine=null;                 // 本局生成的原始布局（重新游玩时使用）
+const HARD_CAND_MS=1500;          // 每个候选局面的搜索时限
+const probCache=new Map();
+
+const $ = id => document.getElementById(id);
+const boardEl=$('board'), faceEl=$('face'), minesEl=$('mines'), timeEl=$('time'), statusEl=$('status');
+
+function setupLevel(key, w, h, m){
+  level=key; W=w; H=h; M=m;
+  const N=W*H;
+  mine=new Uint8Array(N); adj=new Uint8Array(N); st=new Uint8Array(N);
+  NB=buildNB(W,H);
+}
+
+function newGame(){
+  const cfg=LEVELS[level];
+  setupLevel(level, cfg.W, cfg.H, cfg.M);
+  placed=false; revealedCount=0; flagCount=0; lastRev=0;
+  gameState='ready'; exploded=-1; faceState='normal'; notice='';
+  stopTimer(); secs=0;
+  steps=[]; stepIdx=0; probCache.clear(); firstCell=-1; genMine=null; stepCache=null;
+  stopSteps();
+  snap('开局（未翻开任何格）', false);
+  buildBoard();
+  render();
+}
+
+function recomputeAdj(){
+  for(let k=0;k<W*H;k++){ let c=0; for(const n of NB[k]) c+=mine[n]; adj[k]=c; }
+}
+
+// 当前已知信息：已翻开的格及其数字（与布局无关的观测）
+function knownInfo(){
+  const N=W*H, rev=new Uint8Array(N), num=new Uint8Array(N);
+  for(let i=0;i<N;i++) if(st[i]===ST_OPEN){ rev[i]=1; num[i]=adj[i]; }
+  return {rev,num};
+}
+
+function startTimer(){
+  if(timerId) return;
+  timerId=setInterval(()=>{ if(secs<999) secs++; renderCounters(); }, 1000);
+}
+function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
+
+// 翻开一格的内部实现：空白则级联（级联格必为逻辑安全，无需判定）
+function revealFlood(i){
+  const q=[i]; st[i]=ST_OPEN; revealedCount++;
+  for(let h=0;h<q.length;h++){
+    const c=q[h];
+    if(adj[c]!==0) continue;
+    for(const n of NB[c]){
+      if((st[n]===ST_HIDDEN||st[n]===ST_Q) && !mine[n]){
+        st[n]=ST_OPEN; revealedCount++; q.push(n);
+      }
+    }
+  }
+}
+
+// 防猜测判定：若格 i 在逻辑上不能确定安全，则判雷并重抽布局。返回 true 表示确定安全
+function guardCell(i){
+  const {rev,num}=knownInfo();
+  let safe;
+  try{ safe=isCertainlySafe(W,H,NB,rev,num,M,i,Date.now()+SOLVE_BUDGET_MS); }
+  catch(e){ safe=false; }
+  if(safe) return true;
+  let tr=null;
+  try{ tr=sampleLayoutWithMine(W,H,NB,rev,num,M,i,Date.now()+SOLVE_BUDGET_MS); }
+  catch(e){ tr=null; }
+  if(tr){
+    mine.set(tr);
+    recomputeAdj();
+  } else {
+    mine[i]=1;   // 极少见的超时兜底：仅标记该格为雷
+  }
+  notice='该格在逻辑上不能确定安全，判为雷。';
+  lose(i);
+  return false;
+}
+
+// 翻开未开、未插旗的格子。check=true 时先做防猜测判定；返回 false 表示游戏已结束
+function revealCell(i, check){
+  if(st[i]===ST_OPEN || st[i]===ST_FLAG) return true;
+  if(check && !guardCell(i)) return false;
+  if(mine[i]){ lose(i); return false; }
+  revealFlood(i);
+  return true;
+}
+
+// 首击：异步生成逻辑可解布局，首击必安全
+async function firstMove(i){
+  gameState='gen'; faceState='normal'; startTimer(); firstCell=i;
+  render();
+  const r = hardGen ? await generateHardest(i) : await generateAsync(W,H,M,i,GEN_BUDGET_MS);
+  if(gameState!=='gen') return;   // 生成期间已被重开
+  if(!r){
+    // 生成不出逻辑可解局面：直接拒绝，回到未开局状态（不落回随机局面）
+    const msg = hardGen
+      ? '生成尽量难的局面失败：在时限内没有生成出逻辑可解的局面，已取消生成。'
+      : '无法在时限内生成逻辑可解的局面，已取消生成。请重试，或调整雷数与棋盘尺寸。';
+    newGame();
+    notice=msg;
+    render();
+    return;
+  }
+  mine.set(r.truth);
+  notice = r.note || '';
+  recomputeAdj();
+  placed=true;
+  genMine=mine.slice();
+  if(r.search){ stepCache={key:boardKey(), search:r.search, status:r.search.status()}; }
+  gameState='play';
+  revealFlood(i);   // 首击安全，无需判定
+  if(revealedCount===W*H-M) checkWin();
+  afterAction('首击 '+coord(i));
+}
+
+// 生成尽量难的局面：在时限内反复生成逻辑可解局面（首击固定），用最小高级步数搜索评分，保留最大者
+async function generateHardest(first){
+  const END=Date.now()+HARD_GEN_MS;
+  let best=null, tried=0;
+  while(Date.now()<END && gameState==='gen'){
+    const left=END-Date.now();
+    const r=await generateAsync(W,H,M,first,Math.min(left,5000));
+    if(!r || gameState!=='gen'){ await new Promise(res=>setTimeout(res,0)); continue; }
+    tried++;
+    const se=makeStepSearch(W,H,r.NB,r.truth,first,M);
+    const candEnd=Math.min(END, Date.now()+HARD_CAND_MS);
+    let s=se.advance(0);
+    while(!s.complete && Date.now()<candEnd){ s=se.advance(50); await new Promise(res=>setTimeout(res,0)); }
+    if(s.steps!==null && (!best || s.steps>best.steps)){
+      best={truth:r.truth, NB:r.NB, steps:s.steps, proven:s.complete, search:se};
+    }
+    notice=`正在生成尽量难的局面… 已尝试 ${tried} 局，当前最难 ${best?best.steps:'-'} 步，剩余 ${Math.max(0,Math.ceil((END-Date.now())/1000))} 秒`;
+    render();
+    await new Promise(res=>setTimeout(res,0));
+  }
+  if(!best) return null;
+  return {truth:best.truth, NB:best.NB, search:best.search,
+    note:`已从 ${tried} 个逻辑可解局面中选出最难者：最小高级步数 ${best.steps}${best.proven?'（已证明最优）':'（上界，未证明最优）'}。`};
+}
+
+// 重新游玩：保留本局布局与首击位置，清空进度
+function replayGame(){
+  if(!genMine) return;
+  stopTimer(); stopSteps();
+  mine.set(genMine); recomputeAdj();
+  st.fill(0); placed=true; revealedCount=0; flagCount=0; lastRev=0;
+  gameState='ready'; exploded=-1; faceState='normal'; secs=0;
+  steps=[]; stepIdx=0; probCache.clear();
+  notice=`重新游玩：请从首击位置 ${coord(firstCell)} 开始。`;
+  snap('开局（未翻开任何格）', false);
+  render();
+}
+
+function coord(i){ return `(${i%W+1},${Math.floor(i/W)+1})`; }
+
+function open(i){
+  if(st[i]===ST_FLAG||st[i]===ST_OPEN) return;
+  if(gameState==='ready' && !placed){ firstMove(i); return; }
+  if(gameState==='ready'){
+    // 重新游玩：布局已固定，首击必须是原来的首击位置（该格逻辑上安全）
+    if(i!==firstCell){ notice=`重新游玩：请从首击位置 ${coord(firstCell)} 开始。`; render(); return; }
+    gameState='play'; startTimer(); notice='';
+    revealCell(i,false);
+    checkWin();
+    afterAction('首击 '+coord(i));
+    return;
+  }
+  if(gameState!=='play') return;
+  notice='';
+  if(!revealCell(i,true)){ afterAction('翻开 '+coord(i)+' → 判雷'); return; }
+  checkWin();
+  afterAction('翻开 '+coord(i));
+}
+
+// 数字和弦：已开数字格周围插旗数等于数字时，翻开其余周围格（逐格防猜测判定）
+function chord(i){
+  if(gameState!=='play') return;
+  if(st[i]!==ST_OPEN || adj[i]===0) return;
+  let f=0; for(const n of NB[i]) if(st[n]===ST_FLAG) f++;
+  if(f!==adj[i]) return;
+  notice='';
+  for(const n of NB[i]){
+    if(st[n]===ST_FLAG||st[n]===ST_OPEN) continue;
+    if(!revealCell(n,true)){ afterAction('和弦 '+coord(i)+' → 判雷'); return; }
+  }
+  checkWin();
+  afterAction('和弦 '+coord(i));
+}
+
+function toggleFlag(i, cycle){
+  if(gameState!=='ready' && gameState!=='play') return;
+  if(st[i]===ST_OPEN) return;
+  if(cycle){
+    // 右键循环：空 → 旗 →（问号）→ 空
+    if(st[i]===ST_HIDDEN){ st[i]=ST_FLAG; flagCount++; }
+    else if(st[i]===ST_FLAG){ flagCount--; st[i]= questionOn ? ST_Q : ST_HIDDEN; }
+    else if(st[i]===ST_Q){ st[i]=ST_HIDDEN; }
+  } else {
+    // 双模式下的单击：空/问号 → 旗，旗 → 空
+    if(st[i]===ST_FLAG){ st[i]=ST_HIDDEN; flagCount--; }
+    else { st[i]=ST_FLAG; flagCount++; }
+  }
+  render();
+}
+
+// 判雷：游戏结束。注意：不修改 st（未标雷的雷在渲染时才显示），保证快照只含玩家已获得的信息
+function lose(i){
+  gameState='lost'; exploded=i; stopTimer(); faceState='dead';
+}
+
+function checkWin(){
+  if(gameState!=='play') return;
+  if(revealedCount===W*H-M){
+    gameState='won'; stopTimer(); faceState='win';
+    for(let k=0;k<W*H;k++) if(mine[k] && st[k]!==ST_FLAG){ st[k]=ST_FLAG; flagCount++; }
+  }
+}
+
+// 每次玩家动作后：若有新翻开或游戏结束，记录一步快照
+function afterAction(desc){
+  autoMarkCertain();
+  const ended=(gameState==='won'||gameState==='lost');
+  const last=steps[steps.length-1];
+  if(revealedCount!==lastRev || (ended && !last.end)){
+    snap(desc, ended);
+  }
+  render();
+  if(gameState==='won'||gameState==='lost') stopTimer();
+}
+
+// 自动标雷（实时）：对每个已开数字，若其周围未开格（含隐藏与问号）的数量恰好等于该数字，则把这些格全部标为雷；其余不管
+function autoMarkCertain(){
+  if(!autoMark || gameState!=='play') return;
+  for(let i=0;i<W*H;i++){
+    if(st[i]!==ST_OPEN || adj[i]===0) continue;
+    const unopened=NB[i].filter(n=>st[n]!==ST_OPEN);
+    if(unopened.length!==adj[i]) continue;
+    for(const n of unopened){
+      if(st[n]!==ST_FLAG){ st[n]=ST_FLAG; flagCount++; }
+    }
+  }
+}
+
+function snap(desc, end){
+  steps.push({st:st.slice(), num:adj.slice(), desc, end: !!end, opened: revealedCount});
+  lastRev=revealedCount;
+}
+
+// ===================== 渲染 =====================
+const NUM_CLS=['','n1','n2','n3','n4','n5','n6','n7','n8'];
+const SVG_FLAG='<svg width="10" height="11" viewBox="0 0 12 13"><rect x="2" y="1" width="1" height="11" fill="#000"/><path d="M3 1 L11 4 L3 7 Z" fill="#f00"/><rect x="0" y="11" width="6" height="1" fill="#000"/><rect x="1" y="12" width="10" height="1" fill="#000"/></svg>';
+const SVG_MINE='<svg width="10" height="10" viewBox="0 0 12 12"><g fill="#000"><circle cx="6" cy="6" r="3"/><rect x="5.5" y="0.5" width="1" height="11"/><rect x="0.5" y="5.5" width="11" height="1"/><rect x="5.5" y="0.5" width="1" height="11" transform="rotate(45 6 6)"/><rect x="5.5" y="0.5" width="1" height="11" transform="rotate(-45 6 6)"/></g><rect x="4" y="3.5" width="2" height="2" fill="#fff"/></svg>';
+const SVG_WRONG='<svg width="10" height="10" viewBox="0 0 12 12"><g fill="#000"><circle cx="6" cy="6" r="3"/><rect x="5.5" y="0.5" width="1" height="11"/><rect x="0.5" y="5.5" width="11" height="1"/></g><path d="M2 2 L10 10 M10 2 L2 10" stroke="#f00" stroke-width="1.6"/></svg>';
+
+function buildBoard(){
+  boardEl.style.gridTemplateColumns=`repeat(${W}, 16px)`;
+  let html='';
+  for(let i=0;i<W*H;i++) html+=`<div class="cell" data-i="${i}"></div>`;
+  boardEl.innerHTML=html;
+  boardEl.style.width='';
+  fitWindow();
+}
+
+function renderCounters(){
+  const left=M-flagCount;
+  minesEl.textContent = left<0 ? '-'+String(Math.min(99,-left)).padStart(2,'0') : String(Math.min(999,left)).padStart(3,'0');
+  timeEl.textContent=String(Math.min(999,secs)).padStart(3,'0');
+}
+
+function renderFace(){
+  let svg='';
+  const eyesOpen='<ellipse cx="9" cy="10" rx="1.6" ry="2.2" fill="#000"/><ellipse cx="17" cy="10" rx="1.6" ry="2.2" fill="#000"/>';
+  if(faceState==='win'){
+    svg=`<circle cx="13" cy="13" r="12" fill="#ff0" stroke="#000"/><rect x="5" y="8" width="7" height="4" fill="#000"/><rect x="14" y="8" width="7" height="4" fill="#000"/><path d="M8 17 Q13 22 18 17" stroke="#000" stroke-width="1.6" fill="none"/>`;
+  } else if(faceState==='dead'){
+    svg=`<circle cx="13" cy="13" r="12" fill="#ff0" stroke="#000"/><path d="M6 8 L11 12 M11 8 L6 12 M15 8 L20 12 M20 8 L15 12" stroke="#000" stroke-width="1.5"/><path d="M8 20 Q13 15 18 20" stroke="#000" stroke-width="1.6" fill="none"/>`;
+  } else if(faceState==='ooh'){
+    svg=`<circle cx="13" cy="13" r="12" fill="#ff0" stroke="#000"/>${eyesOpen}<ellipse cx="13" cy="19" rx="2.5" ry="2" fill="#000"/>`;
+  } else {
+    svg=`<circle cx="13" cy="13" r="12" fill="#ff0" stroke="#000"/>${eyesOpen}<path d="M8 16 Q13 22 18 16" stroke="#000" stroke-width="1.6" fill="none"/>`;
+  }
+  faceEl.innerHTML=`<svg width="26" height="26" viewBox="0 0 26 26">${svg}</svg>`;
+}
+
+function render(){
+  const cells=boardEl.children;
+  const lost=gameState==='lost';
+  for(let i=0;i<W*H;i++){
+    const d=cells[i];
+    let cls='cell', html='';
+    const s=st[i];
+    if(s===ST_OPEN){
+      cls+=' open';
+      if(adj[i]>0) html=`<span class="${NUM_CLS[adj[i]]}">${adj[i]}</span>`;
+    } else if(lost && mine[i] && s!==ST_FLAG){
+      cls+=' open'; html=SVG_MINE;
+      if(i===exploded) cls+=' boom';
+    } else if(s===ST_FLAG){
+      html=(lost && !mine[i]) ? SVG_WRONG : SVG_FLAG;
+    } else if(s===ST_Q){
+      html='<span class="q">?</span>';
+    }
+    d.className=cls; d.innerHTML=html;
+  }
+  renderCounters();
+  renderFace();
+  statusEl.textContent=notice;
+  document.querySelectorAll('[data-chk]').forEach(el=>{
+    const k=el.dataset.chk;
+    let on=false;
+    if(['easy','medium','hard','custom'].includes(k)) on=(level===k);
+    if(k==='question') on=questionOn;
+    if(k==='dbl') on=dblMode;
+    if(k==='auto') on=autoMark;
+    el.textContent = on ? '✓' : '';
+  });
+  $('mi-review').classList.toggle('disabled', !reviewAvailable());
+  $('mi-replay').classList.toggle('disabled', !genMine);
+  $('mi-steps').classList.toggle('disabled', firstCell<0 || (gameState!=='play' && !reviewAvailable()));
+}
+
+// ===================== 反思 =====================
+function reviewAvailable(){ return gameState==='won'||gameState==='lost'; }
+
+function probsFor(k){
+  if(probCache.has(k)) return probCache.get(k);
+  const s=steps[k], N=W*H;
+  const rev=new Uint8Array(N), num=new Uint8Array(N);
+  for(let i=0;i<N;i++) if(s.st[i]===ST_OPEN){ rev[i]=1; num[i]=s.num[i]; }
+  let P=null;
+  try{ P=cellProbs(W,H,NB,rev,num,M,Date.now()+60000); }catch(e){ P=null; }
+  probCache.set(k,P);
+  return P;
+}
+
+function openReview(){
+  if(!reviewAvailable()) return;
+  stepIdx=0;
+  $('dlg-review').classList.add('show');
+  renderReview();
+}
+
+function renderReview(){
+  const s=steps[stepIdx], N=W*H;
+  const P=probsFor(stepIdx);
+  $('rBoard').style.gridTemplateColumns=`repeat(${W}, 24px)`;
+  let html='';
+  for(let i=0;i<N;i++){
+    const v=s.st[i];
+    if(v===ST_OPEN){
+      const n=s.num[i];
+      const col=['','#0000ff','#008000','#ff0000','#000080','#800000','#008080','#000000','#808080'][n];
+      html+=`<div class="rc o" style="color:${col||'#000'}">${n?n:''}</div>`;
+      continue;
+    }
+    const p=P?P[i]:NaN;
+    let cls='rc', txt='';
+    if(isNaN(p)) txt='?';
+    else if(p>=0.9995){ cls+=' hi'; txt='100%'; }
+    else if(p<0.0005){ cls+=' safe lo'; txt='0%'; }
+    else { txt=Math.round(p*100)+'%'; if(p<0.005) txt='<1%'; if(v===ST_FLAG) cls+=' lo'; }
+    html+=`<div class="${cls}">${txt}</div>`;
+  }
+  $('rBoard').innerHTML=html;
+  const last=steps.length-1;
+  const opened=s.opened, unopened=N-opened;
+  $('rInfo').textContent=`第 ${stepIdx+1} / ${steps.length} 步：${s.desc}　已翻开 ${opened}，未开 ${unopened}`;
+  $('rFirst').disabled=stepIdx===0;
+  $('rPrev').disabled=stepIdx===0;
+  $('rNext').disabled=stepIdx===last;
+  $('rLast').disabled=stepIdx===last;
+}
+
+// ===================== 最小高级步数 =====================
+// 步数缓存：同一局面（尺寸、雷数、首击、布局相同）只搜索一次；未完成的搜索会接着做
+let stepCache=null;   // {key, search, status}
+function boardKey(){
+  let s=''; for(let i=0;i<W*H;i++) s+=mine[i]?'1':'0';
+  return `${W}x${H}x${M}:${firstCell}:${s}`;
+}
+function stepTextFinal(s, sec, cached){
+  const tag = cached ? '（沿用之前的搜索结果）' : '';
+  if(s.steps===null) return `该局面不能仅靠逻辑完成（没有逻辑解）。${tag}`;
+  return `最小高级步数：${s.steps}（已证明最优）。已探索 ${s.nodes} 个状态${sec!==null?`，用时 ${sec} 秒`:''}。${tag}`;
+}
+function openSteps(){
+  if(firstCell<0 || (gameState!=='play' && gameState!=='won' && gameState!=='lost')) return;
+  stopSteps();
+  const key=boardKey();
+  if(!stepCache || stepCache.key!==key){
+    stepCache={key, search:makeStepSearch(W,H,NB,mine.slice(),firstCell,M), status:null};
+  }
+  $('dlg-steps').classList.add('show');
+  if(stepCache.status && stepCache.status.complete){
+    $('sText').textContent=stepTextFinal(stepCache.status, null, true);
+    $('sStop').disabled=true;
+    return;
+  }
+  stepStart=Date.now();
+  $('sStop').disabled=false;
+  stepSearch=stepCache.search;
+  stepTick();
+}
+function stepTick(){
+  if(!stepSearch) return;
+  const s=stepSearch.advance(150);
+  stepCache.status=s;
+  const sec=((Date.now()-stepStart)/1000).toFixed(1);
+  let txt, finished=false;
+  if(s.complete){
+    finished=true;
+    txt = stepTextFinal(s, sec, false);
+  } else if(s.steps===null){
+    txt = `正在搜索… 已探索 ${s.nodes} 个状态，尚未找到完整解（${sec} 秒）。`;
+  } else {
+    txt = `当前最优：${s.steps}（上界，尚未证明最优）。已探索 ${s.nodes} 个状态（${sec} 秒）。再次打开本对话框会接着搜索。`;
+  }
+  if(!finished && (Date.now()-stepStart)/1000>=STEP_BUDGET_S){
+    finished=true;
+    txt += ' 已达时限，停止搜索。';
+  }
+  $('sText').textContent=txt;
+  if(finished){ stopSteps(true); }
+  else stepTimer=setTimeout(stepTick,0);
+}
+function stopSteps(keepText){
+  if(stepTimer){ clearTimeout(stepTimer); stepTimer=null; }
+  stepSearch=null;
+  $('sStop').disabled=true;
+}
+$('sStop').onclick=()=>{ if(stepSearch){ stopSteps(); $('sText').textContent += '（已手动停止，显示的是当前最优）'; } };
+$('sClose').onclick=()=>{ stopSteps(); $('dlg-steps').classList.remove('show'); };
+
+// ===================== 菜单 / 对话框 =====================
+function closeMenus(){ document.querySelectorAll('.dropdown').forEach(d=>d.classList.remove('show')); document.querySelectorAll('.menu-title').forEach(t=>t.classList.remove('open')); }
+document.querySelectorAll('.menu-title').forEach(t=>{
+  t.addEventListener('mousedown', e=>{
+    e.stopPropagation();
+    const dd=t.querySelector('.dropdown');
+    const wasOpen=dd.classList.contains('show');
+    closeMenus();
+    if(!wasOpen){ dd.classList.add('show'); t.classList.add('open'); }
+  });
+  t.addEventListener('mouseenter', ()=>{
+    if(document.querySelector('.dropdown.show') && !t.querySelector('.dropdown').classList.contains('show')){
+      closeMenus(); t.querySelector('.dropdown').classList.add('show'); t.classList.add('open');
+    }
+  });
+});
+document.addEventListener('mousedown', ()=>closeMenus());
+document.querySelectorAll('.mi').forEach(m=>{
+  m.addEventListener('mousedown', e=>e.stopPropagation());
+  m.addEventListener('click', e=>{
+    e.stopPropagation();
+    const act=m.dataset.act; closeMenus();
+    menuAct(act);
+  });
+});
+
+function menuAct(act){
+  if(act==='new') newGame();
+  else if(act==='easy'||act==='medium'||act==='hard'){ const c=LEVELS[act]; setupLevel(act,c.W,c.H,c.M); newGame(); }
+  else if(act==='custom') openCustom();
+  else if(act==='question'){ questionOn=!questionOn; render(); }
+  else if(act==='dbl'){ dblMode=!dblMode; render(); }
+  else if(act==='review') openReview();
+  else if(act==='auto'){ autoMark=!autoMark; autoMarkCertain(); render(); }
+  else if(act==='steps') openSteps();
+  else if(act==='replay') replayGame();
+  else if(act==='gensettings') openGen();
+  else if(act==='savedlg') openSaveDlg();
+  else if(act==='about') $('dlg-about').classList.add('show');
+}
+
+$('rFirst').onclick=()=>{ stepIdx=0; renderReview(); };
+$('rPrev').onclick=()=>{ if(stepIdx>0) stepIdx--; renderReview(); };
+$('rNext').onclick=()=>{ if(stepIdx<steps.length-1) stepIdx++; renderReview(); };
+$('rLast').onclick=()=>{ stepIdx=steps.length-1; renderReview(); };
+$('rClose').onclick=()=>$('dlg-review').classList.remove('show');
+
+// ===================== 生成设置 =====================
+function openGen(){
+  $('gHard').checked=hardGen;
+  $('gSec').value=Math.round(HARD_GEN_MS/1000);
+  $('dlg-gen').classList.add('show');
+}
+$('gOk').onclick=()=>{
+  hardGen=$('gHard').checked;
+  const sec=Math.max(5,Math.min(600,Math.round(+$('gSec').value||30)));
+  HARD_GEN_MS=sec*1000;
+  $('dlg-gen').classList.remove('show');
+  render();
+};
+$('gCancel').onclick=()=>$('dlg-gen').classList.remove('show');
+
+// ===================== 存档与导入 =====================
+// 格式（JSON 文本）：
+// { "format":"classic-minesweeper-save", "version":1, "savedAt":"ISO时间", "level":"easy|medium|hard|custom",
+//   "W":宽, "H":高, "M":雷数, "firstCell":首击下标, "state":"ready|play", "elapsed":已用秒数,
+//   "layout":"长度 W*H 的 0/1 串（1 为雷，下标按行优先）",
+//   "cells":"长度 W*H 的 0-3 串（0 未开，1 已开，2 旗，3 问号）" }
+const SAVE_FORMAT='classic-minesweeper-save', SAVE_VERSION=1;
+const SLOT_KEYS=['classic-minesweeper-slot-1','classic-minesweeper-slot-2','classic-minesweeper-slot-3'];
+const memSlots=[null,null,null];   // 浏览器不允许 localStorage 时的回退（仅本次会话）
+
+function canSave(){ return placed && !!genMine && (gameState==='play'||gameState==='ready'); }
+
+function serializeGame(){
+  const N=W*H; let layout='', cells='';
+  for(let i=0;i<N;i++){ layout += genMine[i] ? '1' : '0'; cells += String(st[i]); }
+  return {format:SAVE_FORMAT, version:SAVE_VERSION, savedAt:new Date().toISOString(),
+    level, W, H, M, firstCell, state:gameState, elapsed:secs, layout, cells};
+}
+
+function parseGame(text){
+  let o;
+  try{ o=JSON.parse(text); }catch(e){ return {err:'不是有效的 JSON 文本'}; }
+  if(!o || o.format!==SAVE_FORMAT) return {err:'文件格式不对（缺少 format 标识）'};
+  if(o.version!==SAVE_VERSION) return {err:`不支持的存档版本：${o.version}`};
+  const W=o.W, H=o.H, M=o.M;
+  if(!Number.isInteger(W)||W<5||W>30||!Number.isInteger(H)||H<5||H>24) return {err:'棋盘尺寸超出范围'};
+  const N=W*H;
+  if(!Number.isInteger(M)||M<1||M>N-9) return {err:'雷数不合法'};
+  if(typeof o.layout!=='string' || o.layout.length!==N || !/^[01]+$/.test(o.layout)) return {err:'布局数据错误'};
+  if([...o.layout].filter(c=>c==='1').length!==M) return {err:'布局中的雷数与 M 不符'};
+  if(typeof o.cells!=='string' || o.cells.length!==N || !/^[0-3]+$/.test(o.cells)) return {err:'格子状态数据错误'};
+  if(!Number.isInteger(o.firstCell) || o.firstCell<0 || o.firstCell>=N || o.layout[o.firstCell]!=='0') return {err:'首击位置不合法'};
+  if(o.state!=='ready' && o.state!=='play') return {err:'只能载入进行中或未开始的局面'};
+  let revealed=0;
+  for(let i=0;i<N;i++){
+    if(o.cells[i]==='1'){ revealed++; if(o.layout[i]==='1') return {err:'已翻开的格不能是雷'}; }
+  }
+  if(o.state==='ready' && revealed>0) return {err:'未开始的局面不应有已翻开的格'};
+  if(o.state==='play' && revealed===0) return {err:'进行中的局面至少应有一个已翻开的格'};
+  if(o.state==='play' && revealed===N-M) return {err:'该局面已经全部翻开，无需载入'};
+  const elapsed=Number.isInteger(o.elapsed) ? Math.max(0,Math.min(999,o.elapsed)) : 0;
+  return {data:{level:o.level, W, H, M, firstCell:o.firstCell, state:o.state, elapsed, layout:o.layout, cells:o.cells}};
+}
+
+function applyGame(d){
+  stopTimer(); stopSteps(); stepCache=null;
+  const std=(d.level==='easy'||d.level==='medium'||d.level==='hard') && LEVELS[d.level].W===d.W && LEVELS[d.level].H===d.H && LEVELS[d.level].M===d.M;
+  if(std){ setupLevel(d.level,d.W,d.H,d.M); }
+  else { LEVELS.custom={W:d.W,H:d.H,M:d.M,name:'自定义'}; setupLevel('custom',d.W,d.H,d.M); }
+  const N=W*H;
+  genMine=new Uint8Array(N);
+  for(let i=0;i<N;i++){ genMine[i]= d.layout[i]==='1' ? 1 : 0; st[i]=+d.cells[i]; }
+  mine.set(genMine); recomputeAdj();
+  placed=true; firstCell=d.firstCell; exploded=-1; faceState='normal';
+  revealedCount=0; flagCount=0;
+  for(let i=0;i<N;i++){ if(st[i]===ST_OPEN) revealedCount++; if(st[i]===ST_FLAG) flagCount++; }
+  buildBoard();
+  steps=[]; stepIdx=0; probCache.clear();
+  if(d.state==='play'){
+    gameState='play'; secs=d.elapsed; startTimer();
+  } else {
+    gameState='ready'; secs=0;
+  }
+  snap('载入的局面', false);
+  lastRev=revealedCount;
+  notice='已载入局面。';
+  render();
+}
+
+function storeGet(n){ try{ return localStorage.getItem(SLOT_KEYS[n]); }catch(e){ return memSlots[n]; } }
+function storeSet(n,text){ try{ localStorage.setItem(SLOT_KEYS[n],text); }catch(e){ memSlots[n]=text; } }
+function storeDel(n){ try{ localStorage.removeItem(SLOT_KEYS[n]); }catch(e){ memSlots[n]=null; } }
+
+function saveMsg(t){ $('svMsg').textContent=t; }
+
+function slotLabel(n){
+  const txt=storeGet(n);
+  if(!txt) return `槽位 ${n+1}：空`;
+  const p=parseGame(txt);
+  if(p.err) return `槽位 ${n+1}：数据损坏`;
+  const d=p.data, names={easy:'初级',medium:'中级',hard:'高级',custom:'自定义'};
+  const when=new Date(JSON.parse(txt).savedAt);
+  return `槽位 ${n+1}：${names[d.level]} ${d.W}×${d.H}/${d.M} · ${d.state==='play'?'进行中':'未开始'} · ${when.toLocaleString?when.toLocaleString():''}`;
+}
+
+function refreshSaveDlg(){
+  for(let n=0;n<3;n++){
+    $('lb'+n).textContent=slotLabel(n);
+    $('sv'+n).disabled=!canSave();
+    $('ld'+n).disabled=!storeGet(n);
+    $('dl'+n).disabled=!storeGet(n);
+  }
+  $('svExport').disabled=!canSave();
+  $('svDownload').disabled=!canSave();
+}
+
+function openSaveDlg(){
+  refreshSaveDlg();
+  saveMsg(canSave() ? '' : '当前没有可保存的局面（需要已开始的局面）。也可以直接导入。');
+  $('dlg-save').classList.add('show');
+}
+
+function saveToSlot(n){
+  if(!canSave()) return;
+  storeSet(n, JSON.stringify(serializeGame()));
+  saveMsg(`已保存到槽位 ${n+1}。`);
+  refreshSaveDlg();
+}
+function loadFromText(text, from){
+  const p=parseGame(text);
+  if(p.err){ saveMsg(`载入失败：${p.err}`); return false; }
+  applyGame(p.data);
+  $('dlg-save').classList.remove('show');
+  return true;
+}
+function exportSaveText(){
+  const text=JSON.stringify(serializeGame(), null, 2);
+  $('svText').value=text;
+  saveMsg('已导出为文本，可复制保存。');
+}
+function downloadSave(){
+  const obj=serializeGame();
+  const text=JSON.stringify(obj, null, 2);
+  $('svText').value=text;
+  const name=`classic-minesweeper-${W}x${H}-${M}.json`;
+  let ok=false;
+  try{
+    const blob=new Blob([text],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    ok=true;
+  }catch(e){ ok=false; }
+  saveMsg(ok ? `已下载 ${name}。` : '浏览器不允许下载，已把存档文本填入上方文本框，请复制保存。');
+}
+
+for(let n=0;n<3;n++){
+  $('sv'+n).onclick=()=>saveToSlot(n);
+  $('ld'+n).onclick=()=>{ const t=storeGet(n); if(t) loadFromText(t); };
+  $('dl'+n).onclick=()=>{ storeDel(n); saveMsg(`已删除槽位 ${n+1}。`); refreshSaveDlg(); };
+}
+$('svExport').onclick=exportSaveText;
+$('svDownload').onclick=downloadSave;
+$('svImport').onclick=()=>{ const t=$('svText').value.trim(); if(!t){ saveMsg('请先粘贴存档文本。'); return; } loadFromText(t); };
+$('svFile').onchange=(e)=>{
+  const f=e.target.files && e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ $('svText').value=String(r.result); loadFromText(String(r.result)); };
+  r.readAsText(f);
+};
+$('svClose').onclick=()=>$('dlg-save').classList.remove('show');
+
+function openCustom(){
+  $('cW').value=W; $('cH').value=H; $('cM').value=M;
+  updateCustomHint();
+  $('dlg-custom').classList.add('show');
+}
+function updateCustomHint(){
+  const w=+$('cW').value, h=+$('cH').value;
+  const max=w*h-9;
+  $('cHint').textContent=`雷数范围：10 – ${max}`;
+}
+['cW','cH','cM'].forEach(id=>$(id).addEventListener('input',updateCustomHint));
+$('cOk').onclick=()=>{
+  const w=Math.max(5,Math.min(30,+$('cW').value||5));
+  const h=Math.max(5,Math.min(24,+$('cH').value||5));
+  const maxM=w*h-9;
+  const m=Math.max(10,Math.min(maxM,+$('cM').value||10));
+  LEVELS.custom={W:w,H:h,M:m,name:'自定义'};
+  $('dlg-custom').classList.remove('show');
+  setupLevel('custom',w,h,m);
+  newGame();
+};
+$('cCancel').onclick=()=>$('dlg-custom').classList.remove('show');
+$('aOk').onclick=()=>$('dlg-about').classList.remove('show');
+
+// ===================== 输入绑定 =====================
+function onCellClick(i, detail){
+  if(gameState==='won'||gameState==='lost'||gameState==='gen') return;
+  if(dblMode){
+    if(detail!==1) return;      // 双击的第二次单击不做事
+    if(st[i]===ST_OPEN) return;
+    toggleFlag(i,false);
+    return;
+  }
+  if(detail>1) return;
+  if(st[i]===ST_OPEN) chord(i);
+  else open(i);
+}
+function onCellDbl(i){
+  if(!dblMode) return;
+  if(gameState!=='ready' && gameState!=='play') return;
+  if(st[i]===ST_OPEN){ chord(i); return; }
+  if(st[i]===ST_FLAG){ st[i]=ST_HIDDEN; flagCount--; }   // 撤掉单击时插的旗
+  open(i);
+}
+function onCellContext(i){
+  toggleFlag(i, questionOn);
+}
+
+boardEl.addEventListener('mousedown', e=>{
+  const c=e.target.closest('.cell'); if(!c) return;
+  if(e.button===0 && (gameState==='ready'||gameState==='play')){
+    const i=+c.dataset.i;
+    if(st[i]===ST_HIDDEN||st[i]===ST_Q){ faceState='ooh'; renderFace(); }
+  }
+});
+function releaseFace(){ if(faceState==='ooh'){ faceState='normal'; renderFace(); } }
+document.addEventListener('mouseup', releaseFace);
+boardEl.addEventListener('click', e=>{
+  const c=e.target.closest('.cell'); if(!c) return;
+  onCellClick(+c.dataset.i, e.detail);
+  releaseFace();
+});
+boardEl.addEventListener('dblclick', e=>{
+  const c=e.target.closest('.cell'); if(!c) return;
+  onCellDbl(+c.dataset.i);
+});
+boardEl.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  const c=e.target.closest('.cell'); if(!c) return;
+  onCellContext(+c.dataset.i);
+});
+faceEl.addEventListener('mousedown', ()=>faceEl.classList.add('down'));
+faceEl.addEventListener('mouseup', ()=>faceEl.classList.remove('down'));
+faceEl.addEventListener('click', ()=>newGame());
+document.addEventListener('keydown', e=>{ if(e.key==='F2'){ e.preventDefault(); newGame(); } });
+document.addEventListener('contextmenu', e=>{ if(!e.target.closest('.cell')) e.preventDefault(); });
+
+// ===================== 窗口大小与全屏 =====================
+// 窗口可用右下角手柄拖动；内容区按窗口大小等比缩放（1–4 倍，最小为原始尺寸）。
+// □ 按钮在窗口模式与全屏模式之间切换：全屏时先尝试浏览器全屏，被禁止时退回为铺满页面的模式。
+const winEl=$('win'), contentEl=$('content'), gripEl=$('grip'), fullBtn=$('btnFull');
+const MAX_ZOOM=4;
+let winMode='window';            // window | full
+let baseW=0, baseH=0;            // 内容区的原始尺寸（zoom=1）
+let savedSize={w:'',h:''};
+let dragState=null;
+
+function canLayout(){ return !!(winEl && contentEl && typeof getComputedStyle==='function' && contentEl.offsetWidth>0); }
+function measureBase(){
+  contentEl.style.zoom='1';
+  baseW=contentEl.offsetWidth; baseH=contentEl.offsetHeight;
+}
+function chromeSizes(){
+  const cs=getComputedStyle(winEl);
+  const tb=winEl.querySelector('.titlebar');
+  return {
+    padX: parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight),
+    padY: parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom),
+    borX: winEl.offsetWidth-winEl.clientWidth,
+    borY: winEl.offsetHeight-winEl.clientHeight,
+    tbH: tb ? tb.offsetHeight : 20
+  };
+}
+function fitWindow(){
+  if(!canLayout()) return;
+  measureBase();
+  let c=chromeSizes();
+  if(winMode==='window'){
+    // 窗口不能小于内容的原始尺寸（例如棋盘尺寸变化后）
+    const minW=baseW+c.padX+c.borX, minH=baseH+c.padY+c.borY+c.tbH;
+    if(winEl.style.width && parseFloat(winEl.style.width)<minW) winEl.style.width=minW+'px';
+    if(winEl.style.height && parseFloat(winEl.style.height)<minH) winEl.style.height=minH+'px';
+    c=chromeSizes();
+  }
+  const availW=winEl.clientWidth-c.padX;
+  const availH=winEl.clientHeight-c.padY-c.tbH;
+  let z=Math.min(availW/baseW, availH/baseH);
+  z=Math.max(1, Math.min(MAX_ZOOM, z));
+  contentEl.style.zoom=String(z);
+  renderFullBtn();
+}
+function renderFullBtn(){
+  if(!fullBtn) return;
+  // 窗口模式显示“最大化”图标，全屏模式显示“还原”图标（纯 SVG，不依赖字体）
+  fullBtn.innerHTML = winMode==='full'
+    ? '<svg width="10" height="9" viewBox="0 0 10 9"><rect x="2.5" y="0.5" width="7" height="6" fill="none" stroke="#000"/><rect x="0.5" y="2.5" width="7" height="6" fill="#c0c0c0" stroke="#000"/></svg>'
+    : '<svg width="10" height="9" viewBox="0 0 10 9"><rect x="0.5" y="0.5" width="9" height="8" fill="none" stroke="#000"/><rect x="0" y="0" width="10" height="2" fill="#000"/></svg>';
+}
+function setMode(m){
+  if(m===winMode) return;
+  if(m==='full'){
+    savedSize={w:winEl.style.width, h:winEl.style.height};
+    winEl.style.width=''; winEl.style.height='';
+    winMode='full';
+    winEl.classList.add('full');
+  } else {
+    winMode='window';
+    winEl.classList.remove('full');
+    winEl.style.width=savedSize.w; winEl.style.height=savedSize.h;
+  }
+  fitWindow();
+}
+function toggleFull(){
+  if(winMode==='window'){
+    setMode('full');
+    try{ const p=document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if(p && p.catch) p.catch(()=>{}); }catch(e){}
+  } else {
+    setMode('window');
+    try{ if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); }catch(e){}
+  }
+}
+if(fullBtn) fullBtn.onclick=toggleFull;
+if(gripEl){
+  gripEl.addEventListener('pointerdown', e=>{
+    if(winMode!=='window') return;
+    e.preventDefault();
+    if(gripEl.setPointerCapture) gripEl.setPointerCapture(e.pointerId);
+    const r=winEl.getBoundingClientRect();
+    dragState={x:e.clientX, y:e.clientY, w:r.width, h:r.height};
+  });
+  gripEl.addEventListener('pointermove', e=>{
+    if(!dragState || !canLayout()) return;
+    measureBase();
+    const c=chromeSizes();
+    const minW=baseW+c.padX+c.borX, minH=baseH+c.padY+c.borY+c.tbH;
+    const w=Math.max(minW, dragState.w+(e.clientX-dragState.x));
+    const h=Math.max(minH, dragState.h+(e.clientY-dragState.y));
+    winEl.style.width=w+'px'; winEl.style.height=h+'px';
+    fitWindow();
+  });
+  const endDrag=()=>{ dragState=null; };
+  gripEl.addEventListener('pointerup', endDrag);
+  gripEl.addEventListener('pointercancel', endDrag);
+}
+if(typeof window!=='undefined'){
+  window.addEventListener('resize', ()=>fitWindow());
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && winMode==='full'){ setMode('window'); } });
+  document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement && winMode==='full') setMode('window'); });
+}
+
+// 初始：初级
+setupLevel('easy', LEVELS.easy.W, LEVELS.easy.H, LEVELS.easy.M);
+newGame();
+renderFullBtn();
+fitWindow();
+
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a48ef7ba2c7f756c',t:'MTc5MTczMzI3Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a4d924cb0d1dd783',t:'MTc5MjUxMTA2NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
